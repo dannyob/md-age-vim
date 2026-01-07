@@ -91,7 +91,27 @@ This is the plaintext content the user edits.
 plugin/md-age.vim      # Auto-commands, command definitions
 autoload/mdage.vim     # Core functions (parse, encrypt, decrypt)
 doc/md-age.txt         # Vim help file
+t/                     # Tests (vim-testify)
+  frontmatter_test.vim
+  recipients_test.vim
+  encrypt_test.vim
 ```
+
+## Testing
+
+Uses [vim-testify](https://github.com/dhruvasagar/vim-testify) for TDD.
+
+```vim
+function! s:TestParseFrontmatter()
+  let lines = ['---', 'age-encrypt: yes', '---', 'body']
+  let result = mdage#ParseFrontmatter(lines)
+  call testify#assert#equals(result.age_encrypt, 'yes')
+  call testify#assert#equals(result.body_start, 4)
+endfunction
+call testify#it('parses frontmatter', function('s:TestParseFrontmatter'))
+```
+
+Run tests with `:TestifySuite` or `vim -c 'TestifySuite' -c 'qa!'`
 
 ### Key functions
 
