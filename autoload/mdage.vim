@@ -116,6 +116,37 @@ function! mdage#Encrypt(plaintext, recipients) abort
   return result
 endfunction
 
+" Decrypt ciphertext using age
+" identity_args: CLI args for identity (e.g., '-i ~/.age/key.txt')
+" Returns: {'success': 0/1, 'plaintext': '...', 'error': '...'}
+function! mdage#Decrypt(ciphertext, identity_args) abort
+  let result = {'success': 0, 'plaintext': '', 'error': ''}
+
+  if empty(a:identity_args)
+    let result.error = 'md-age: g:md_age_identity not set'
+    return result
+  endif
+
+  let cmd = get(g:, 'md_age_command', 'age')
+
+  " Use temp file to avoid shell escaping issues
+  let tmpfile = tempname()
+  call writefile(split(a:ciphertext, "\n", 1), tmpfile, 'b')
+
+  let full_cmd = cmd . ' -d ' . a:identity_args . ' < ' . shellescape(tmpfile) . ' 2>&1'
+  let output = system(full_cmd)
+  call delete(tmpfile)
+
+  if v:shell_error
+    let result.error = 'md-age: decryption failed'
+    return result
+  endif
+
+  let result.success = 1
+  let result.plaintext = output
+  return result
+endfunction
+
 function! mdage#Init() abort
   echo 'md-age: MdAgeInit not yet implemented'
 endfunction
