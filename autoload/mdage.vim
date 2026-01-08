@@ -67,6 +67,24 @@ function! mdage#GetRecipients(parsed, lines) abort
   return recipients
 endfunction
 
+" Build CLI args for recipients
+" age1... and ssh-... use -r, file paths use -R
+" Returns: string of CLI args
+function! mdage#BuildRecipientArgs(recipients) abort
+  let args = []
+  for r in a:recipients
+    if r =~# '^age1' || r =~# '^ssh-'
+      " Escape spaces for shell
+      let escaped = substitute(r, ' ', '\\ ', 'g')
+      call add(args, '-r ' . escaped)
+    else
+      " File path - use -R
+      call add(args, '-R ' . r)
+    endif
+  endfor
+  return join(args, ' ')
+endfunction
+
 function! mdage#Init() abort
   echo 'md-age: MdAgeInit not yet implemented'
 endfunction
