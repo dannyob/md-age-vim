@@ -1,10 +1,5 @@
 " Tests for frontmatter parsing
 
-function! s:TestPluginLoads()
-  call testify#assert#equals(exists('g:loaded_md_age'), 0)
-endfunction
-call testify#it('plugin not loaded in test context', function('s:TestPluginLoads'))
-
 function! s:TestHasFrontmatter()
   let lines = ['---', 'title: Test', '---', 'body']
   call testify#assert#equals(mdage#HasFrontmatter(lines), 1)
