@@ -15,3 +15,11 @@ endif
 " Commands
 command! MdAgeInit call mdage#Init()
 command! MdAgeStatus call mdage#Status()
+
+" Autocommands for transparent encryption
+augroup md_age
+  autocmd!
+  autocmd BufReadPost *.md call mdage#OnBufRead()
+  autocmd BufWritePre *.md call mdage#OnBufWritePre()
+  autocmd BufWritePost *.md call mdage#OnBufWritePost()
+augroup END
