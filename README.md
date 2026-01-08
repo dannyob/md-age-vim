@@ -32,6 +32,19 @@ Optional - use a different age command:
 let g:md_age_command = 'rage'
 ```
 
+Optional - set default recipients for `:MdAgeInit`:
+
+```vim
+" Single recipient
+let g:md_age_default_recipients = 'age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p'
+
+" Multiple recipients
+let g:md_age_default_recipients = [
+  \ 'age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p',
+  \ '~/.age/backup.pub'
+  \ ]
+```
+
 ## Usage
 
 Add frontmatter to your markdown file:

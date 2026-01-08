@@ -290,14 +290,33 @@ function! mdage#Init() abort
     \ '---',
     \ 'age-encrypt: yes',
     \ 'age-recipients:',
-    \ '  - ',
-    \ '---',
-    \ ''
   \ ]
 
+  " Add default recipients if configured, otherwise empty placeholder
+  if exists('g:md_age_default_recipients')
+    let recipients = g:md_age_default_recipients
+    " Handle both string and list
+    if type(recipients) == v:t_string
+      let recipients = [recipients]
+    endif
+    for r in recipients
+      call add(template, '  - ' . r)
+    endfor
+  else
+    call add(template, '  - ')
+  endif
+
+  call add(template, '---')
+  call add(template, '')
+
   call append(0, template)
-  " Position cursor on recipient line
-  call cursor(4, 5)
+
+  " Position cursor: if no defaults, on the empty recipient line; otherwise after frontmatter
+  if !exists('g:md_age_default_recipients')
+    call cursor(4, 5)
+  else
+    call cursor(len(template) + 1, 1)
+  endif
 endfunction
 
 " Show current encryption status
