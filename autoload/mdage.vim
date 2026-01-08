@@ -85,6 +85,37 @@ function! mdage#BuildRecipientArgs(recipients) abort
   return join(args, ' ')
 endfunction
 
+" Encrypt plaintext using age
+" Returns: {'success': 0/1, 'ciphertext': '...', 'error': '...'}
+function! mdage#Encrypt(plaintext, recipients) abort
+  let result = {'success': 0, 'ciphertext': '', 'error': ''}
+
+  if empty(a:recipients)
+    let result.error = 'md-age: no recipients provided'
+    return result
+  endif
+
+  let cmd = get(g:, 'md_age_command', 'age')
+  let recipient_args = mdage#BuildRecipientArgs(a:recipients)
+
+  " Use temp file to avoid shell escaping issues
+  let tmpfile = tempname()
+  call writefile(split(a:plaintext, "\n", 1), tmpfile, 'b')
+
+  let full_cmd = cmd . ' -e -a ' . recipient_args . ' < ' . shellescape(tmpfile) . ' 2>&1'
+  let output = system(full_cmd)
+  call delete(tmpfile)
+
+  if v:shell_error
+    let result.error = 'md-age: encryption failed: ' . output
+    return result
+  endif
+
+  let result.success = 1
+  let result.ciphertext = trim(output)
+  return result
+endfunction
+
 function! mdage#Init() abort
   echo 'md-age: MdAgeInit not yet implemented'
 endfunction
