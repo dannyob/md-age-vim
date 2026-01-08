@@ -41,6 +41,32 @@ function! mdage#ParseFrontmatter(lines) abort
   return result
 endfunction
 
+" Extract recipients array from frontmatter
+" Returns: list of recipient strings
+function! mdage#GetRecipients(parsed, lines) abort
+  let recipients = []
+  " Find age-recipients: line
+  let in_recipients = 0
+  for i in range(1, a:parsed.end_line - 1)
+    let line = a:lines[i]
+    if line =~# '^age-recipients:\s*$'
+      let in_recipients = 1
+      continue
+    endif
+    if in_recipients
+      " Check if this is an array item (starts with whitespace and -)
+      let match = matchlist(line, '^\s\+- \(.*\)$')
+      if len(match) >= 2
+        call add(recipients, match[1])
+      elseif line !~# '^\s'
+        " No longer indented, end of array
+        break
+      endif
+    endif
+  endfor
+  return recipients
+endfunction
+
 function! mdage#Init() abort
   echo 'md-age: MdAgeInit not yet implemented'
 endfunction
