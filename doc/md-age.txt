@@ -54,13 +54,23 @@ KNOWN LIMITATIONS                               *md-age-limitations*
 
 Passphrase-protected identities are not currently supported when using
 `system()` calls, as there is no TTY available for the passphrase prompt.
+Note: age does not support ssh-agent.
 
 Workarounds:
-- Use ssh-agent for SSH keys: `ssh-add ~/.ssh/id_ed25519`
 - Use an unencrypted age identity file
 - Use age plugins that handle auth differently (e.g., age-plugin-yubikey)
+- Use the upcoming `age-plugin-batchpass` (expected in a future age release)
+  which reads passphrases from environment variables or file descriptors
 
-A future version may use `:terminal` or `jobstart()` with PTY support.
+Native age keys are recommended for scripted/non-interactive use. You can
+encrypt directly to the private key: >
+    age-keygen -o key.txt
+    let g:md_age_identity = '-i ~/key.txt'
+<
+Or use an environment variable: >
+    export AGE_SECRET=$(age-keygen)
+    let g:md_age_identity = '-i <(echo "$AGE_SECRET")'
+<
 
 ERROR HANDLING                                  *md-age-errors*
 
