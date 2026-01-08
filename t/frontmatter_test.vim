@@ -38,3 +38,27 @@ function! s:TestParseFrontmatterPreservesAll()
   call testify#assert#equals(len(result.fields), 3)
 endfunction
 call testify#it('preserves all frontmatter fields', function('s:TestParseFrontmatterPreservesAll'))
+
+function! s:TestShouldEncryptYes()
+  let parsed = {'fields': {'age-encrypt': 'yes'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
+endfunction
+call testify#it('should encrypt when age-encrypt: yes', function('s:TestShouldEncryptYes'))
+
+function! s:TestShouldEncryptNo()
+  let parsed = {'fields': {'age-encrypt': 'no'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 0)
+endfunction
+call testify#it('should not encrypt when age-encrypt: no', function('s:TestShouldEncryptNo'))
+
+function! s:TestShouldEncryptMissing()
+  let parsed = {'fields': {'title': 'Test'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 0)
+endfunction
+call testify#it('should not encrypt when age-encrypt missing', function('s:TestShouldEncryptMissing'))
+
+function! s:TestShouldEncryptNoFrontmatter()
+  let parsed = {'fields': {}, 'end_line': -1}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 0)
+endfunction
+call testify#it('should not encrypt with no frontmatter', function('s:TestShouldEncryptNoFrontmatter'))

@@ -147,6 +147,15 @@ function! mdage#Decrypt(ciphertext, identity_args) abort
   return result
 endfunction
 
+" Check if file should be encrypted based on frontmatter
+" Returns: 1 if should encrypt, 0 otherwise
+function! mdage#ShouldEncrypt(parsed) abort
+  if a:parsed.end_line < 0
+    return 0
+  endif
+  return get(a:parsed.fields, 'age-encrypt', '') ==# 'yes'
+endfunction
+
 function! mdage#Init() abort
   echo 'md-age: MdAgeInit not yet implemented'
 endfunction
