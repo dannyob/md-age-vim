@@ -279,10 +279,42 @@ function! mdage#OnBufWritePost() abort
   unlet b:md_age_frontmatter_end
 endfunction
 
+" Insert frontmatter template at top of buffer
 function! mdage#Init() abort
-  echo 'md-age: MdAgeInit not yet implemented'
+  if mdage#HasFrontmatter(getline(1, '$'))
+    echo 'md-age: frontmatter already exists'
+    return
+  endif
+
+  let template = [
+    \ '---',
+    \ 'age-encrypt: yes',
+    \ 'age-recipients:',
+    \ '  - ',
+    \ '---',
+    \ ''
+  \ ]
+
+  call append(0, template)
+  " Position cursor on recipient line
+  call cursor(4, 5)
 endfunction
 
+" Show current encryption status
 function! mdage#Status() abort
-  echo 'md-age: MdAgeStatus not yet implemented'
+  let lines = getline(1, '$')
+  let parsed = mdage#ParseFrontmatter(lines)
+
+  if !mdage#ShouldEncrypt(parsed)
+    echo 'md-age: not an encrypted file'
+    return
+  endif
+
+  if get(b:, 'md_age_encrypted', 0)
+    echo 'md-age: decrypted (will encrypt on save)'
+    let recipients = mdage#GetRecipients(parsed, lines)
+    echo 'md-age: recipients: ' . string(recipients)
+  else
+    echo 'md-age: encrypted file (not yet decrypted)'
+  endif
 endfunction
