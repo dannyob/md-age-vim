@@ -1,0 +1,64 @@
+*md-age.txt*  Transparent age encryption for markdown files
+
+Author:  Danny O'Brien <danny@spesh.com>
+License: AGPL-3.0-or-later
+
+INTRODUCTION                                    *md-age*
+
+md-age-vim provides transparent encryption and decryption of markdown files
+using age (https://age-encryption.org/). Files are automatically decrypted
+when opened and encrypted when saved, based on YAML frontmatter configuration.
+
+CONFIGURATION                                   *md-age-config*
+
+                                                *g:md_age_identity*
+g:md_age_identity~
+    Required. Command-line arguments for age identity.
+    Examples: >
+        let g:md_age_identity = '-i ~/.age/identity.txt'
+        let g:md_age_identity = '-j'  " for age plugins
+<
+                                                *g:md_age_command*
+g:md_age_command~
+    Optional. The age command to use. Default: 'age'
+    Example: >
+        let g:md_age_command = 'rage'
+<
+FRONTMATTER FORMAT                              *md-age-frontmatter*
+
+Enable encryption by adding these fields to YAML frontmatter: >
+
+    ---
+    title: My Document
+    age-encrypt: yes
+    age-recipients:
+      - age1ql3z7hjy54pw...
+      - ~/.age/recipients.txt
+      - ssh-ed25519 AAAA...
+    ---
+<
+Recipients can be:
+- age public keys (starting with 'age1')
+- SSH public keys (starting with 'ssh-')
+- Paths to recipient files (anything else, uses -R flag)
+
+COMMANDS                                        *md-age-commands*
+
+                                                *:MdAgeInit*
+:MdAgeInit          Insert frontmatter template at top of buffer.
+
+                                                *:MdAgeStatus*
+:MdAgeStatus        Show current encryption status and recipients.
+
+ERROR HANDLING                                  *md-age-errors*
+
+If decryption fails (wrong key, corrupted file):
+- Buffer is set to read-only
+- Encrypted content remains visible
+- Error message is displayed
+
+If encryption fails:
+- Save is aborted
+- Error message is displayed
+
+ vim:tw=78:ts=8:ft=help:norl:
