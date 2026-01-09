@@ -12,10 +12,34 @@ Transparent [age](https://age-encryption.org/) encryption for markdown files in 
 
 ## Installation
 
-Using vim-plug:
+Using [vim-plug](https://github.com/junegunn/vim-plug):
 
 ```vim
-Plug 'dob/md-age-vim'
+Plug 'dannyob/md-age-vim'
+```
+
+Using [lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{ 'dannyob/md-age-vim' }
+```
+
+Using [packer.nvim](https://github.com/wbthomason/packer.nvim):
+
+```lua
+use 'dannyob/md-age-vim'
+```
+
+Using native vim packages:
+
+```bash
+git clone https://github.com/dannyob/md-age-vim ~/.vim/pack/plugins/start/md-age-vim
+```
+
+Using native neovim packages:
+
+```bash
+git clone https://github.com/dannyob/md-age-vim ~/.local/share/nvim/site/pack/plugins/start/md-age-vim
 ```
 
 ## Configuration
