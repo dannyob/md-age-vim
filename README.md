@@ -86,10 +86,28 @@ Or use `:MdAgeInit` to insert a template.
 
 The file will be automatically decrypted when opened and encrypted when saved.
 
-## Commands
+## Vim Commands
 
 - `:MdAgeInit` - Insert frontmatter template
 - `:MdAgeStatus` - Show encryption status
+
+## Command-Line Tool
+
+A standalone `md-age` script is included in `bin/` for shell usage:
+
+```bash
+# Encrypt using recipients from frontmatter
+md-age -e notes.md > notes.md.enc
+
+# Encrypt with explicit recipient (creates frontmatter)
+md-age -e -r age1... plaintext.md > encrypted.md
+
+# Decrypt
+md-age -d -i ~/.age/key.txt encrypted.md > decrypted.md
+
+# See all options
+md-age -h
+```
 
 ## License
 

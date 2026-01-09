@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+#
+# md-age - age encryption for markdown files with YAML frontmatter
+#
+# Encrypts/decrypts markdown files while preserving frontmatter.
+# Recipients are read from frontmatter age-recipients field by default.
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: md-age [-e|-d] [-r RECIPIENT]... [-i IDENTITY]... [-o OUTPUT] [FILE]
+
+Encrypt or decrypt markdown files with age, preserving YAML frontmatter.
+
+Modes:
+  -e            Encrypt (default)
+  -d            Decrypt
+
+Options:
+  -r RECIPIENT  Recipient for encryption (age public key, SSH key, or file path)
+                If not specified, uses age-recipients from frontmatter
+  -R FILE       Recipients file (passed to age as -R)
+  -i IDENTITY   Identity file for decryption (passed to age as -i)
+  -o OUTPUT     Write to OUTPUT instead of stdout
+  -h            Show this help
+
+Examples:
+  # Encrypt using recipients from frontmatter
+  md-age -e notes.md > notes.md.enc
+
+  # Encrypt with explicit recipient
+  md-age -e -r age1... plaintext.md > encrypted.md
+
+  # Decrypt
+  md-age -d -i ~/.age/key.txt encrypted.md > decrypted.md
+
+  # In-place edit (decrypt, edit, re-encrypt)
+  md-age -d -i key.txt file.md | vim - | md-age -e -o file.md
+EOF
+    exit "${1:-0}"
+}
+
+die() {
+    echo "md-age: $*" >&2
+    exit 1
+}
+
+# Parse frontmatter - sets global vars: FRONTMATTER and BODY
+# Returns 1 if no frontmatter found
+parse_frontmatter() {
+    local content="$1"
+    local line
+    local in_fm=0
+    local fm_done=0
+    FRONTMATTER=""
+    BODY=""
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ $in_fm -eq 0 ]] && [[ $fm_done -eq 0 ]]; then
+            if [[ "$line" == "---" ]]; then
+                in_fm=1
+                FRONTMATTER="$line"$'\n'
+            else
+                # No frontmatter
+                BODY="$content"
+                return 1
+            fi
+        elif [[ $in_fm -eq 1 ]]; then
+            FRONTMATTER+="$line"$'\n'
+            if [[ "$line" == "---" ]]; then
+                in_fm=0
+                fm_done=1
+            fi
+        else
+            BODY+="$line"$'\n'
+        fi
+    done <<< "$content"
+
+    [[ -n "$FRONTMATTER" ]] || return 1
+    return 0
+}
+
+# Extract age-recipients from frontmatter (one per line)
+extract_recipients() {
+    awk '
+    /^age-recipients:/ { in_recip = 1; next }
+    in_recip && /^[[:space:]]+-[[:space:]]+/ {
+        sub(/^[[:space:]]+-[[:space:]]+/, "")
+        print
+        next
+    }
+    in_recip && /^[^[:space:]]/ { exit }
+    '
+}
+
+# Build recipient args for age from frontmatter recipients
+build_recipient_args() {
+    local recipients="$1"
+    local args=""
+    while IFS= read -r r; do
+        [[ -z "$r" ]] && continue
+        if [[ "$r" == age1* ]] || [[ "$r" == ssh-* ]]; then
+            args="$args -r $r"
+        else
+            # Expand ~ for file paths
+            local expanded="${r/#\~/$HOME}"
+            args="$args -R $expanded"
+        fi
+    done <<< "$recipients"
+    echo "$args"
+}
+
+# Main
+mode="encrypt"
+recipients=()
+recipient_files=()
+identities=()
+output=""
+age_cmd="${MD_AGE_COMMAND:-age}"
+
+while getopts "edr:R:i:o:h" opt; do
+    case "$opt" in
+        e) mode="encrypt" ;;
+        d) mode="decrypt" ;;
+        r) recipients+=("$OPTARG") ;;
+        R) recipient_files+=("$OPTARG") ;;
+        i) identities+=("$OPTARG") ;;
+        o) output="$OPTARG" ;;
+        h) usage 0 ;;
+        *) usage 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+input="${1:--}"
+
+# Read input
+if [[ "$input" == "-" ]]; then
+    content=$(cat)
+else
+    [[ -f "$input" ]] || die "file not found: $input"
+    content=$(cat "$input")
+fi
+
+# Parse frontmatter (sets FRONTMATTER and BODY globals)
+if ! parse_frontmatter "$content"; then
+    frontmatter=""
+    body="$content"
+else
+    frontmatter="$FRONTMATTER"
+    body="$BODY"
+fi
+
+# Remove trailing newline from body for clean output
+body="${body%$'\n'}"
+
+do_output() {
+    if [[ -n "$output" ]]; then
+        cat > "$output"
+    else
+        cat
+    fi
+}
+
+if [[ "$mode" == "decrypt" ]]; then
+    # Decryption
+    [[ ${#identities[@]} -gt 0 ]] || die "no identity specified (-i)"
+
+    # Build identity args
+    id_args=""
+    for id in "${identities[@]}"; do
+        id_args="$id_args -i $id"
+    done
+
+    # Check if body looks encrypted
+    if [[ "$body" != *"-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+        die "no encrypted content found"
+    fi
+
+    # Decrypt body
+    decrypted=$(echo "$body" | $age_cmd -d $id_args) || die "decryption failed"
+
+    # Output frontmatter + decrypted body
+    {
+        [[ -n "$frontmatter" ]] && printf '%s' "$frontmatter"
+        printf '%s\n' "$decrypted"
+    } | do_output
+
+elif [[ "$mode" == "encrypt" ]]; then
+    # Encryption
+
+    # Build recipient args
+    age_args=""
+
+    # Use explicit recipients if provided
+    if [[ ${#recipients[@]} -gt 0 ]] || [[ ${#recipient_files[@]} -gt 0 ]]; then
+        for r in "${recipients[@]}"; do
+            if [[ "$r" == age1* ]] || [[ "$r" == ssh-* ]]; then
+                age_args="$age_args -r $r"
+            else
+                age_args="$age_args -R ${r/#\~/$HOME}"
+            fi
+        done
+        for rf in "${recipient_files[@]}"; do
+            age_args="$age_args -R ${rf/#\~/$HOME}"
+        done
+    elif [[ -n "$frontmatter" ]]; then
+        # Extract from frontmatter
+        fm_recipients=$(echo "$frontmatter" | extract_recipients)
+        [[ -n "$fm_recipients" ]] || die "no recipients specified and none in frontmatter"
+        age_args=$(build_recipient_args "$fm_recipients")
+    else
+        die "no recipients specified (-r) and no frontmatter"
+    fi
+
+    # Encrypt body (always armored for markdown embedding)
+    encrypted=$(echo "$body" | $age_cmd -e -a $age_args) || die "encryption failed"
+
+    # Build output
+    if [[ -n "$frontmatter" ]]; then
+        # Use existing frontmatter
+        {
+            printf '%s' "$frontmatter"
+            printf '%s\n' "$encrypted"
+        } | do_output
+    else
+        # Create minimal frontmatter
+        {
+            echo "---"
+            echo "age-encrypt: yes"
+            echo "age-recipients:"
+            for r in "${recipients[@]}"; do
+                echo "  - $r"
+            done
+            for rf in "${recipient_files[@]}"; do
+                echo "  - $rf"
+            done
+            echo "---"
+            printf '%s\n' "$encrypted"
+        } | do_output
+    fi
+fi
