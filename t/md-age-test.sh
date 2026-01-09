@@ -43,13 +43,22 @@ teardown() {
 
 pass() {
     ((TESTS_PASSED++)) || true
-    echo -e "${GREEN}✓${NC} $1"
+    if [[ -n "${TAP:-}" ]]; then
+        echo "ok $TESTS_RUN - $1"
+    else
+        echo -e "${GREEN}✓${NC} $1"
+    fi
 }
 
 fail() {
     ((TESTS_FAILED++)) || true
-    echo -e "${RED}✗${NC} $1"
-    [[ -n "${2:-}" ]] && echo "  $2"
+    if [[ -n "${TAP:-}" ]]; then
+        echo "not ok $TESTS_RUN - $1"
+        [[ -n "${2:-}" ]] && echo "#   $2"
+    else
+        echo -e "${RED}✗${NC} $1"
+        [[ -n "${2:-}" ]] && echo "  $2"
+    fi
 }
 
 run_test() {
@@ -276,9 +285,11 @@ EOF
 # --- Main ---
 
 main() {
-    echo "Testing bin/md-age"
-    echo "=================="
-    echo ""
+    if [[ -z "${TAP:-}" ]]; then
+        echo "Testing bin/md-age"
+        echo "=================="
+        echo ""
+    fi
 
     setup
     trap teardown EXIT
@@ -298,9 +309,13 @@ main() {
     run_test "error: file not encrypted" test_error_not_encrypted
     run_test "error: file not found" test_error_file_not_found
 
-    echo ""
-    echo "=================="
-    echo "Tests: $TESTS_RUN  Passed: $TESTS_PASSED  Failed: $TESTS_FAILED"
+    if [[ -n "${TAP:-}" ]]; then
+        echo "1..$TESTS_RUN"
+    else
+        echo ""
+        echo "=================="
+        echo "Tests: $TESTS_RUN  Passed: $TESTS_PASSED  Failed: $TESTS_FAILED"
+    fi
 
     [[ $TESTS_FAILED -eq 0 ]]
 }
