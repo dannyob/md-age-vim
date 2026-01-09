@@ -3,15 +3,20 @@
 TESTIFY_DIR := deps/vim-testify
 VIM := nvim
 
-.PHONY: test deps clean
+.PHONY: test test-vim test-cli deps clean
 
-test: deps
+test: test-vim test-cli
+
+test-vim: deps
 	$(VIM) --headless \
 		-c "set rtp+=$(TESTIFY_DIR)" \
 		-c "set rtp+=." \
 		-c "runtime plugin/testify.vim" \
 		-c "runtime plugin/md-age.vim" \
 		+TestifySuite
+
+test-cli:
+	./t/md-age-test.sh
 
 deps: $(TESTIFY_DIR)
 
