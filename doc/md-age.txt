@@ -54,7 +54,6 @@ KNOWN LIMITATIONS                               *md-age-limitations*
 
 Passphrase-protected identities are not currently supported when using
 `system()` calls, as there is no TTY available for the passphrase prompt.
-Note: age does not support ssh-agent.
 
 Workarounds:
 - Use an unencrypted age identity file
