@@ -286,6 +286,21 @@ test_git_help() {
     "$MD_AGE" git --help 2>&1 | grep -q "git subcommands"
 }
 
+test_git_init() {
+    # Create temp git repo
+    local repo="$TMPDIR/test-repo"
+    git init -q "$repo"
+
+    # Run init
+    (cd "$repo" && "$MD_AGE" git init) || return 1
+
+    # Check filter config was added
+    (cd "$repo" && git config --get filter.md-age.clean) | grep -q "md-age git clean" || return 1
+    (cd "$repo" && git config --get filter.md-age.smudge) | grep -q "md-age git smudge" || return 1
+    (cd "$repo" && git config --get filter.md-age.required) | grep -q "true" || return 1
+    (cd "$repo" && git config --get diff.md-age.textconv) | grep -q "md-age git smudge" || return 1
+}
+
 # --- Main ---
 
 main() {
@@ -313,6 +328,7 @@ main() {
     run_test "error: file not encrypted" test_error_not_encrypted
     run_test "error: file not found" test_error_file_not_found
     run_test "git subcommand shows help" test_git_help
+    run_test "git init sets up filters" test_git_init
 
     if [[ -n "${TAP:-}" ]]; then
         echo "1..$TESTS_RUN"

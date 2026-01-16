@@ -58,7 +58,34 @@ EOF
     exit "${1:-0}"
 }
 
-git_init() { die "git init not yet implemented"; }
+git_init() {
+    if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+        cat <<'EOF'
+Usage: md-age git init
+
+Set up md-age filter configuration in the current git repository.
+Adds filter and diff settings to .git/config.
+
+After running this, add to your .gitattributes:
+  *.md filter=md-age diff=md-age
+EOF
+        exit 0
+    fi
+
+    # Check we're in a git repo
+    git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
+
+    # Set up filter
+    git config filter.md-age.clean "md-age git clean %f"
+    git config filter.md-age.smudge "md-age git smudge %f"
+    git config filter.md-age.required true
+
+    # Set up diff
+    git config diff.md-age.textconv "md-age git smudge"
+
+    echo "md-age: filter configured in .git/config"
+    echo "md-age: add '*.md filter=md-age diff=md-age' to .gitattributes"
+}
 git_config() { die "git config not yet implemented"; }
 git_clean() { die "git clean not yet implemented"; }
 git_smudge() { die "git smudge not yet implemented"; }
