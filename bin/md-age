@@ -58,6 +58,59 @@ EOF
     exit "${1:-0}"
 }
 
+# Compute cache key for content
+# Key = SHA256(sorted_recipients || NUL || body)
+compute_cache_key() {
+    local recipients="$1"
+    local body="$2"
+
+    # Sort recipients for consistency
+    local sorted_recipients
+    sorted_recipients=$(echo "$recipients" | sort)
+
+    # Compute hash
+    printf '%s\0%s' "$sorted_recipients" "$body" | shasum -a 256 | cut -d' ' -f1
+}
+
+# Get cache directory (creates if needed)
+get_cache_dir() {
+    local git_dir
+    git_dir=$(git rev-parse --git-dir 2>/dev/null) || return 1
+    local cache_dir="$git_dir/md-age/hashes"
+    mkdir -p "$cache_dir"
+    echo "$cache_dir"
+}
+
+# Get cached ciphertext for key, returns 1 if not found
+get_cached() {
+    local key="$1"
+    local cache_dir
+    cache_dir=$(get_cache_dir) || return 1
+
+    local prefix="${key:0:2}"
+    local cache_file="$cache_dir/$prefix/$key"
+
+    if [[ -f "$cache_file" ]]; then
+        cat "$cache_file"
+        return 0
+    fi
+    return 1
+}
+
+# Store ciphertext in cache
+set_cached() {
+    local key="$1"
+    local ciphertext="$2"
+    local cache_dir
+    cache_dir=$(get_cache_dir) || return 1
+
+    local prefix="${key:0:2}"
+    mkdir -p "$cache_dir/$prefix"
+    local cache_file="$cache_dir/$prefix/$key"
+
+    printf '%s' "$ciphertext" > "$cache_file"
+}
+
 git_init() {
     if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
         cat <<'EOF'
@@ -228,15 +281,30 @@ EOF
         exit 1
     fi
 
-    # Build recipient args and encrypt
+    # Compute cache key
+    local cache_key
+    cache_key=$(compute_cache_key "$recipients" "$body")
+
+    # Check cache
+    local encrypted
+    if encrypted=$(get_cached "$cache_key" 2>/dev/null); then
+        # Cache hit - use cached ciphertext
+        printf '%s' "$frontmatter"
+        printf '%s\n' "$encrypted"
+        return 0
+    fi
+
+    # Cache miss - encrypt
     local age_args
     age_args=$(build_recipient_args "$recipients")
 
-    local encrypted
     encrypted=$(printf '%s' "$body" | $age_cmd -e -a $age_args) || {
         echo "md-age: clean: encryption failed for $filename" >&2
         exit 1
     }
+
+    # Store in cache
+    set_cached "$cache_key" "$encrypted" 2>/dev/null || true
 
     # Output frontmatter + encrypted body
     printf '%s' "$frontmatter"

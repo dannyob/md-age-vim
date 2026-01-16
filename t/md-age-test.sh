@@ -435,6 +435,53 @@ Secret smudge content"
     echo "$decrypted" | grep -q "Secret smudge content"
 }
 
+test_git_clean_deterministic() {
+    local repo="$TMPDIR/cache-repo"
+    git init -q "$repo"
+    (cd "$repo" && "$MD_AGE" git init) >/dev/null
+
+    local input="---
+age-encrypt: yes
+age-recipients:
+  - $RECIPIENT
+---
+Deterministic test content"
+
+    # Run clean twice - should get same output due to caching
+    local output1 output2
+    output1=$(cd "$repo" && echo "$input" | "$MD_AGE" git clean test.md)
+    output2=$(cd "$repo" && echo "$input" | "$MD_AGE" git clean test.md)
+
+    [[ "$output1" == "$output2" ]] || return 1
+}
+
+test_git_clean_cache_invalidates_on_change() {
+    local repo="$TMPDIR/cache-change-repo"
+    git init -q "$repo"
+    (cd "$repo" && "$MD_AGE" git init) >/dev/null
+
+    local input1="---
+age-encrypt: yes
+age-recipients:
+  - $RECIPIENT
+---
+Content version 1"
+
+    local input2="---
+age-encrypt: yes
+age-recipients:
+  - $RECIPIENT
+---
+Content version 2"
+
+    local output1 output2
+    output1=$(cd "$repo" && echo "$input1" | "$MD_AGE" git clean test.md)
+    output2=$(cd "$repo" && echo "$input2" | "$MD_AGE" git clean test.md)
+
+    # Different content should produce different output
+    [[ "$output1" != "$output2" ]] || return 1
+}
+
 # --- Main ---
 
 main() {
@@ -472,6 +519,8 @@ main() {
     run_test "git smudge passes through non-md-age files" test_git_smudge_passthrough_plain
     run_test "git smudge passes through when no identity" test_git_smudge_passthrough_no_identity
     run_test "git smudge decrypts with identity" test_git_smudge_decrypts
+    run_test "git clean is deterministic with caching" test_git_clean_deterministic
+    run_test "git clean cache invalidates on content change" test_git_clean_cache_invalidates_on_change
 
     if [[ -n "${TAP:-}" ]]; then
         echo "1..$TESTS_RUN"
