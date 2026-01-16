@@ -384,6 +384,57 @@ Secret content"
     return 0
 }
 
+test_git_smudge_passthrough_plain() {
+    # Non-md-age file passes through
+    local input="# Just a readme"
+    local output
+    output=$(echo "$input" | "$MD_AGE" git smudge test.md)
+    [[ "$output" == "$input" ]]
+}
+
+test_git_smudge_passthrough_no_identity() {
+    local repo="$TMPDIR/smudge-noid-repo"
+    git init -q "$repo"
+
+    # Encrypted content but no identity configured
+    local input="---
+age-encrypt: yes
+age-recipients:
+  - $RECIPIENT
+---
+-----BEGIN AGE ENCRYPTED FILE-----
+YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBIckxLbXdTYU0rWVk4UmVu
+-----END AGE ENCRYPTED FILE-----"
+
+    # Should pass through without error (no identity)
+    local output
+    output=$(cd "$repo" && echo "$input" | "$MD_AGE" git smudge test.md 2>&1) || return 1
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
+}
+
+test_git_smudge_decrypts() {
+    local repo="$TMPDIR/smudge-repo"
+    git init -q "$repo"
+    (cd "$repo" && "$MD_AGE" git init && "$MD_AGE" git config add -i "$TESTKEY") >/dev/null
+
+    # First encrypt something
+    local plaintext="---
+age-encrypt: yes
+age-recipients:
+  - $RECIPIENT
+---
+Secret smudge content"
+
+    local encrypted
+    encrypted=$(echo "$plaintext" | "$MD_AGE" git clean test.md)
+
+    # Then decrypt via smudge
+    local decrypted
+    decrypted=$(cd "$repo" && echo "$encrypted" | "$MD_AGE" git smudge test.md)
+
+    echo "$decrypted" | grep -q "Secret smudge content"
+}
+
 # --- Main ---
 
 main() {
@@ -418,6 +469,9 @@ main() {
     run_test "git clean passes through non-md-age files" test_git_clean_passthrough
     run_test "git clean encrypts md-age files" test_git_clean_encrypts
     run_test "git clean fails without recipients" test_git_clean_fails_no_recipients
+    run_test "git smudge passes through non-md-age files" test_git_smudge_passthrough_plain
+    run_test "git smudge passes through when no identity" test_git_smudge_passthrough_no_identity
+    run_test "git smudge decrypts with identity" test_git_smudge_decrypts
 
     if [[ -n "${TAP:-}" ]]; then
         echo "1..$TESTS_RUN"

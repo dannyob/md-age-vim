@@ -242,7 +242,77 @@ EOF
     printf '%s' "$frontmatter"
     printf '%s\n' "$encrypted"
 }
-git_smudge() { die "git smudge not yet implemented"; }
+git_smudge() {
+    local filename="${1:-}"
+
+    if [[ "$filename" == "-h" ]] || [[ "$filename" == "--help" ]]; then
+        cat <<'EOF'
+Usage: md-age git smudge <filename>
+
+Git smudge filter - decrypts md-age files on checkout.
+Reads from stdin, writes to stdout.
+Non-md-age files pass through unchanged.
+If no identity configured, encrypted files pass through unchanged.
+EOF
+        exit 0
+    fi
+
+    # Read all stdin
+    local content
+    content=$(cat)
+
+    # Parse frontmatter
+    if ! parse_frontmatter "$content"; then
+        # No frontmatter - pass through
+        printf '%s' "$content"
+        return 0
+    fi
+
+    local frontmatter="$FRONTMATTER"
+    local body="$BODY"
+    body="${body%$'\n'}"
+
+    # Check if this is an md-age file
+    if ! echo "$frontmatter" | grep -q '^age-encrypt: yes'; then
+        printf '%s' "$content"
+        return 0
+    fi
+
+    # Check if body is encrypted
+    if [[ "$body" != *"-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+        # Not encrypted - pass through (new file perhaps)
+        printf '%s' "$content"
+        return 0
+    fi
+
+    # Get identities from git config
+    local identities
+    identities=$(git config --get-all md-age.config.identity 2>/dev/null || true)
+
+    if [[ -z "$identities" ]]; then
+        # No identity - pass through encrypted
+        printf '%s' "$content"
+        return 0
+    fi
+
+    # Build identity args
+    local id_args=""
+    while IFS= read -r id; do
+        [[ -z "$id" ]] && continue
+        id_args="$id_args -i $id"
+    done <<< "$identities"
+
+    # Try to decrypt
+    local decrypted
+    if decrypted=$(printf '%s' "$body" | $age_cmd -d $id_args 2>/dev/null); then
+        # Success - output frontmatter + decrypted
+        printf '%s' "$frontmatter"
+        printf '%s\n' "$decrypted"
+    else
+        # Decrypt failed - pass through encrypted
+        printf '%s' "$content"
+    fi
+}
 
 die() {
     echo "md-age: $*" >&2
