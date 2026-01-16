@@ -183,13 +183,74 @@ git_config_remove() {
         die "identity not found: $expanded"
     fi
 }
-git_clean() { die "git clean not yet implemented"; }
+git_clean() {
+    local filename="${1:-}"
+
+    if [[ "$filename" == "-h" ]] || [[ "$filename" == "--help" ]]; then
+        cat <<'EOF'
+Usage: md-age git clean <filename>
+
+Git clean filter - encrypts md-age files on stage.
+Reads from stdin, writes to stdout.
+Non-md-age files pass through unchanged.
+EOF
+        exit 0
+    fi
+
+    # Read all stdin
+    local content
+    content=$(cat)
+
+    # Parse frontmatter
+    if ! parse_frontmatter "$content"; then
+        # No frontmatter - pass through
+        printf '%s' "$content"
+        return 0
+    fi
+
+    local frontmatter="$FRONTMATTER"
+    local body="$BODY"
+    body="${body%$'\n'}"  # Remove trailing newline
+
+    # Check if this is an md-age file
+    if ! echo "$frontmatter" | grep -q '^age-encrypt: yes'; then
+        # Not an md-age file - pass through
+        printf '%s' "$content"
+        return 0
+    fi
+
+    # Extract recipients
+    local recipients
+    recipients=$(echo "$frontmatter" | extract_recipients)
+
+    if [[ -z "$recipients" ]]; then
+        echo "md-age: clean: no recipients in frontmatter for $filename" >&2
+        exit 1
+    fi
+
+    # Build recipient args and encrypt
+    local age_args
+    age_args=$(build_recipient_args "$recipients")
+
+    local encrypted
+    encrypted=$(printf '%s' "$body" | $age_cmd -e -a $age_args) || {
+        echo "md-age: clean: encryption failed for $filename" >&2
+        exit 1
+    }
+
+    # Output frontmatter + encrypted body
+    printf '%s' "$frontmatter"
+    printf '%s\n' "$encrypted"
+}
 git_smudge() { die "git smudge not yet implemented"; }
 
 die() {
     echo "md-age: $*" >&2
     exit 1
 }
+
+# Set age command early (needed by git subcommands)
+age_cmd="${MD_AGE_COMMAND:-age}"
 
 # Parse frontmatter - sets global vars: FRONTMATTER and BODY
 # Returns 1 if no frontmatter found
@@ -276,7 +337,6 @@ recipients=()
 recipient_files=()
 identities=()
 output=""
-age_cmd="${MD_AGE_COMMAND:-age}"
 
 while getopts "edr:R:i:o:h" opt; do
     case "$opt" in

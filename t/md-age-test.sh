@@ -336,6 +336,54 @@ test_git_config_multiple_identities() {
     [[ "$count" -eq 2 ]] || return 1
 }
 
+test_git_clean_passthrough() {
+    # Non-md-age file should pass through unchanged
+    local input="# Just a readme
+
+Some content here."
+
+    local output
+    output=$(echo "$input" | "$MD_AGE" git clean test.md)
+
+    [[ "$output" == "$input" ]] || return 1
+}
+
+test_git_clean_encrypts() {
+    local repo="$TMPDIR/clean-repo"
+    git init -q "$repo"
+    (cd "$repo" && "$MD_AGE" git init) >/dev/null
+
+    local input="---
+age-encrypt: yes
+age-recipients:
+  - $RECIPIENT
+---
+Secret content"
+
+    local output
+    output=$(cd "$repo" && echo "$input" | "$MD_AGE" git clean test.md)
+
+    # Should have frontmatter
+    echo "$output" | grep -q "^---$" || return 1
+    echo "$output" | grep -q "^age-encrypt: yes$" || return 1
+    # Should have encrypted body
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE" || return 1
+    # Should NOT have plaintext
+    ! echo "$output" | grep -q "Secret content" || return 1
+}
+
+test_git_clean_fails_no_recipients() {
+    local input="---
+age-encrypt: yes
+---
+Secret content"
+
+    if echo "$input" | "$MD_AGE" git clean test.md 2>/dev/null; then
+        return 1  # Should have failed
+    fi
+    return 0
+}
+
 # --- Main ---
 
 main() {
@@ -367,6 +415,9 @@ main() {
     run_test "git config add adds identity" test_git_config_add
     run_test "git config list shows identities" test_git_config_list
     run_test "git config supports multiple identities" test_git_config_multiple_identities
+    run_test "git clean passes through non-md-age files" test_git_clean_passthrough
+    run_test "git clean encrypts md-age files" test_git_clean_encrypts
+    run_test "git clean fails without recipients" test_git_clean_fails_no_recipients
 
     if [[ -n "${TAP:-}" ]]; then
         echo "1..$TESTS_RUN"
