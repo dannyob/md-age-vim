@@ -301,6 +301,41 @@ test_git_init() {
     (cd "$repo" && git config --get diff.md-age.textconv) | grep -q "md-age git smudge" || return 1
 }
 
+test_git_config_add() {
+    local repo="$TMPDIR/config-repo"
+    git init -q "$repo"
+
+    (cd "$repo" && "$MD_AGE" git config add -i "$TESTKEY") || return 1
+
+    # Check identity was added
+    (cd "$repo" && git config --get-all md-age.config.identity) | grep -q "$TESTKEY" || return 1
+}
+
+test_git_config_list() {
+    local repo="$TMPDIR/list-repo"
+    git init -q "$repo"
+
+    (cd "$repo" && "$MD_AGE" git config add -i "$TESTKEY") || return 1
+
+    local output
+    output=$(cd "$repo" && "$MD_AGE" git config list)
+    echo "$output" | grep -q "$TESTKEY" || return 1
+}
+
+test_git_config_multiple_identities() {
+    local repo="$TMPDIR/multi-repo"
+    git init -q "$repo"
+    local key2="$TMPDIR/key2-config.txt"
+    age-keygen -o "$key2" 2>/dev/null
+
+    (cd "$repo" && "$MD_AGE" git config add -i "$TESTKEY") || return 1
+    (cd "$repo" && "$MD_AGE" git config add -i "$key2") || return 1
+
+    local count
+    count=$(cd "$repo" && git config --get-all md-age.config.identity | wc -l)
+    [[ "$count" -eq 2 ]] || return 1
+}
+
 # --- Main ---
 
 main() {
@@ -329,6 +364,9 @@ main() {
     run_test "error: file not found" test_error_file_not_found
     run_test "git subcommand shows help" test_git_help
     run_test "git init sets up filters" test_git_init
+    run_test "git config add adds identity" test_git_config_add
+    run_test "git config list shows identities" test_git_config_list
+    run_test "git config supports multiple identities" test_git_config_multiple_identities
 
     if [[ -n "${TAP:-}" ]]; then
         echo "1..$TESTS_RUN"

@@ -86,7 +86,103 @@ EOF
     echo "md-age: filter configured in .git/config"
     echo "md-age: add '*.md filter=md-age diff=md-age' to .gitattributes"
 }
-git_config() { die "git config not yet implemented"; }
+git_config() {
+    local cmd="${1:-}"
+
+    case "$cmd" in
+        -h|--help|"")
+            cat <<'EOF'
+Usage: md-age git config <command>
+
+Commands:
+  add -i <path>     Add an identity file
+  list              List configured identities
+  remove -i <path>  Remove an identity file
+
+Identities are stored in .git/config (not version controlled).
+EOF
+            exit 0
+            ;;
+        add)
+            shift
+            git_config_add "$@"
+            ;;
+        list)
+            git_config_list
+            ;;
+        remove)
+            shift
+            git_config_remove "$@"
+            ;;
+        *)
+            die "unknown config command: $cmd"
+            ;;
+    esac
+}
+
+git_config_add() {
+    local identity=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -i) identity="$2"; shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    [[ -n "$identity" ]] || die "no identity specified (-i)"
+    git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
+
+    # Expand ~ but store the expanded path
+    local expanded="${identity/#\~/$HOME}"
+
+    # Check if already added
+    if git config --get-all md-age.config.identity 2>/dev/null | grep -qF "$expanded"; then
+        echo "md-age: identity already configured: $expanded"
+        return 0
+    fi
+
+    git config --add md-age.config.identity "$expanded"
+    echo "md-age: added identity: $expanded"
+}
+
+git_config_list() {
+    git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
+
+    local identities
+    identities=$(git config --get-all md-age.config.identity 2>/dev/null || true)
+
+    if [[ -z "$identities" ]]; then
+        echo "md-age: no identities configured"
+        echo "md-age: use 'md-age git config add -i <path>' to add one"
+        return 0
+    fi
+
+    echo "Identities:"
+    while IFS= read -r id; do
+        echo "  $id"
+    done <<< "$identities"
+}
+
+git_config_remove() {
+    local identity=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -i) identity="$2"; shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    [[ -n "$identity" ]] || die "no identity specified (-i)"
+    git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
+
+    local expanded="${identity/#\~/$HOME}"
+
+    if git config --unset md-age.config.identity "$expanded" 2>/dev/null; then
+        echo "md-age: removed identity: $expanded"
+    else
+        die "identity not found: $expanded"
+    fi
+}
 git_clean() { die "git clean not yet implemented"; }
 git_smudge() { die "git smudge not yet implemented"; }
 
