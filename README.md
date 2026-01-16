@@ -109,6 +109,57 @@ md-age -d -i ~/.age/key.txt encrypted.md > decrypted.md
 md-age -h
 ```
 
+## Git Integration
+
+Transparent encryption in git repositories using smudge/clean filters.
+
+### Setup
+
+1. Initialize filters in your repository:
+
+```bash
+md-age git init
+```
+
+2. Add your identity (for decryption):
+
+```bash
+md-age git config add -i ~/.age/key.txt
+```
+
+3. Configure `.gitattributes` (commit this file):
+
+```
+*.md filter=md-age diff=md-age
+```
+
+### How It Works
+
+- **On commit:** The clean filter encrypts md-age files before storing in git
+- **On checkout:** The smudge filter decrypts files in your working copy
+- **Non-md-age files:** Pass through unchanged (safe for regular markdown)
+
+Files with `age-encrypt: yes` in frontmatter are encrypted; others are untouched.
+
+### Commands
+
+```bash
+md-age git init                    # Set up filters in current repo
+md-age git config add -i <path>    # Add identity for decryption
+md-age git config list             # Show configured identities
+md-age git config remove -i <path> # Remove identity
+```
+
+### Fresh Clone
+
+After cloning a repo with md-age files:
+
+```bash
+cd repo
+md-age git config add -i ~/.age/key.txt
+git checkout .  # Re-checkout to trigger decryption
+```
+
 ## License
 
 AGPL-3.0-or-later
