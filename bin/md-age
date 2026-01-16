@@ -39,6 +39,23 @@ Examples:
 
   # In-place edit (decrypt, edit, re-encrypt)
   md-age -d -i key.txt file.md | vim - | md-age -e -o file.md
+
+Git integration:
+  md-age git init              Set up filters in current repo
+  md-age git config add -i     Add identity for decryption
+  md-age git config list       Show configured identities
+  md-age git config remove -i  Remove identity
+
+  Run 'md-age git --help' for more details.
+
+Frontmatter format:
+  ---
+  age-encrypt: yes
+  age-recipients:
+    - age1...        # age public key
+    - ssh-ed25519... # SSH public key
+    - ~/.age/file    # recipients file path
+  ---
 EOF
     exit "${1:-0}"
 }
