@@ -43,6 +43,26 @@ EOF
     exit "${1:-0}"
 }
 
+git_usage() {
+    cat <<'EOF'
+Usage: md-age git <command> [options]
+
+git subcommands for transparent encryption:
+  init              Set up filters in current repo
+  config            Manage identity configuration
+  clean             Encrypt filter (for git)
+  smudge            Decrypt filter (for git)
+
+Run 'md-age git <command> --help' for command-specific help.
+EOF
+    exit "${1:-0}"
+}
+
+git_init() { die "git init not yet implemented"; }
+git_config() { die "git config not yet implemented"; }
+git_clean() { die "git clean not yet implemented"; }
+git_smudge() { die "git smudge not yet implemented"; }
+
 die() {
     echo "md-age: $*" >&2
     exit 1
@@ -112,6 +132,20 @@ build_recipient_args() {
     done <<< "$recipients"
     echo "$args"
 }
+
+# Route to git subcommand if first arg is "git"
+if [[ "${1:-}" == "git" ]]; then
+    shift
+    case "${1:-}" in
+        init)   shift; git_init "$@" ;;
+        config) shift; git_config "$@" ;;
+        clean)  shift; git_clean "$@" ;;
+        smudge) shift; git_smudge "$@" ;;
+        -h|--help|"") git_usage 0 ;;
+        *) die "unknown git command: $1" ;;
+    esac
+    exit 0
+fi
 
 # Main
 mode="encrypt"

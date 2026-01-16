@@ -282,6 +282,10 @@ EOF
     echo "$output" | grep -q "List item 2" || return 1
 }
 
+test_git_help() {
+    "$MD_AGE" git --help 2>&1 | grep -q "git subcommands"
+}
+
 # --- Main ---
 
 main() {
@@ -308,6 +312,7 @@ main() {
     run_test "error: no identity for decrypt" test_error_no_identity
     run_test "error: file not encrypted" test_error_not_encrypted
     run_test "error: file not found" test_error_file_not_found
+    run_test "git subcommand shows help" test_git_help
 
     if [[ -n "${TAP:-}" ]]; then
         echo "1..$TESTS_RUN"
