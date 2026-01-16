@@ -482,6 +482,66 @@ Content version 2"
     [[ "$output1" != "$output2" ]] || return 1
 }
 
+test_git_integration_workflow() {
+    local repo="$TMPDIR/integration-repo"
+    git init -q "$repo"
+    cd "$repo"
+
+    # Add md-age to PATH so git filters can find it
+    export PATH="$PROJECT_DIR/bin:$PATH"
+
+    # Setup
+    "$MD_AGE" git init >/dev/null
+    "$MD_AGE" git config add -i "$TESTKEY" >/dev/null
+    echo '*.md filter=md-age diff=md-age' > .gitattributes
+    git add .gitattributes
+    git commit -q -m "Add gitattributes"
+
+    # Create md-age file
+    cat > secret.md << EOF
+---
+age-encrypt: yes
+age-recipients:
+  - $RECIPIENT
+---
+This is secret content
+EOF
+
+    # Add and commit
+    git add secret.md
+    git commit -q -m "Add secret"
+
+    # Verify committed content is encrypted
+    local stored
+    stored=$(git show HEAD:secret.md)
+    if echo "$stored" | grep -q "This is secret content"; then
+        echo "FAIL: plaintext found in git" >&2
+        return 1
+    fi
+    if ! echo "$stored" | grep -q "BEGIN AGE ENCRYPTED FILE"; then
+        echo "FAIL: no encrypted content in git" >&2
+        return 1
+    fi
+
+    # Verify working copy is decrypted (via smudge)
+    local working
+    working=$(cat secret.md)
+    if ! echo "$working" | grep -q "This is secret content"; then
+        echo "FAIL: working copy not decrypted" >&2
+        return 1
+    fi
+
+    # Verify checkout decrypts
+    git checkout -- secret.md
+    working=$(cat secret.md)
+    if ! echo "$working" | grep -q "This is secret content"; then
+        echo "FAIL: checkout did not decrypt" >&2
+        return 1
+    fi
+
+    return 0
+}
+
 # --- Main ---
 
 main() {
@@ -521,6 +581,7 @@ main() {
     run_test "git smudge decrypts with identity" test_git_smudge_decrypts
     run_test "git clean is deterministic with caching" test_git_clean_deterministic
     run_test "git clean cache invalidates on content change" test_git_clean_cache_invalidates_on_change
+    run_test "git integration: add/commit/checkout workflow" test_git_integration_workflow
 
     if [[ -n "${TAP:-}" ]]; then
         echo "1..$TESTS_RUN"
