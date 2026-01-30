@@ -322,7 +322,9 @@ EOF
 
     # Cache miss - encrypt
     local age_args
-    age_args=$(build_recipient_args "$recipients")
+    local file_dir
+    file_dir=$(dirname "$filename")
+    age_args=$(build_recipient_args "$recipients" "$file_dir")
 
     encrypted=$(printf '%s' "$body" | $age_cmd -e -a $age_args) || {
         echo "md-age: clean: encryption failed for $filename" >&2
@@ -465,8 +467,11 @@ extract_recipients() {
 }
 
 # Build recipient args for age from frontmatter recipients
+# Args: recipients [base_dir]
+# base_dir is used to resolve relative paths (default: current directory)
 build_recipient_args() {
     local recipients="$1"
+    local base_dir="${2:-.}"
     local args=""
     while IFS= read -r r; do
         [[ -z "$r" ]] && continue
@@ -475,6 +480,10 @@ build_recipient_args() {
         else
             # Expand ~ for file paths
             local expanded="${r/#\~/$HOME}"
+            # Resolve relative paths from base_dir
+            if [[ "$expanded" != /* ]]; then
+                expanded="$base_dir/$expanded"
+            fi
             args="$args -R $expanded"
         fi
     done <<< "$recipients"
@@ -592,7 +601,10 @@ elif [[ "$mode" == "encrypt" ]]; then
         # Extract from frontmatter
         fm_recipients=$(echo "$frontmatter" | extract_recipients)
         [[ -n "$fm_recipients" ]] || die "no recipients specified and none in frontmatter"
-        age_args=$(build_recipient_args "$fm_recipients")
+        # Resolve relative paths from input file's directory
+        input_dir="."
+        [[ "$input" != "-" ]] && input_dir=$(dirname "$input")
+        age_args=$(build_recipient_args "$fm_recipients" "$input_dir")
     else
         die "no recipients specified (-r) and no frontmatter"
     fi
