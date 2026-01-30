@@ -64,15 +64,12 @@ for transparent encryption in repositories.
 
                                                 *md-age-git-setup*
 Setup: >
-    md-age git init                    " configure filters in repo
+    md-age git init                    " configure filters and .gitattributes
     md-age git config add -i ~/.age/key.txt
-<
-Then add to .gitattributes: >
-    *.md filter=md-age diff=md-age
 <
                                                 *md-age-git-commands*
 Git subcommands:~
-    md-age git init              Set up filters in current repo
+    md-age git init              Set up filters and .gitattributes
     md-age git config add -i     Add identity for decryption
     md-age git config list       Show configured identities
     md-age git config remove -i  Remove identity

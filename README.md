@@ -115,7 +115,7 @@ Transparent encryption in git repositories using smudge/clean filters.
 
 ### Setup
 
-1. Initialize filters in your repository:
+1. Initialize filters in your repository (also creates `.gitattributes`):
 
 ```bash
 md-age git init
@@ -127,11 +127,7 @@ md-age git init
 md-age git config add -i ~/.age/key.txt
 ```
 
-3. Configure `.gitattributes` (commit this file):
-
-```
-*.md filter=md-age diff=md-age
-```
+3. Commit `.gitattributes` so other clones use the filter.
 
 ### How It Works
 

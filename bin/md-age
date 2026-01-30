@@ -134,10 +134,7 @@ git_init() {
 Usage: md-age git init
 
 Set up md-age filter configuration in the current git repository.
-Adds filter and diff settings to .git/config.
-
-After running this, add to your .gitattributes:
-  *.md filter=md-age diff=md-age
+Adds filter and diff settings to .git/config and .gitattributes.
 EOF
         exit 0
     fi
@@ -154,7 +151,19 @@ EOF
     git config diff.md-age.textconv "md-age git smudge"
 
     echo "md-age: filter configured in .git/config"
-    echo "md-age: add '*.md filter=md-age diff=md-age' to .gitattributes"
+
+    # Add to .gitattributes if not already present
+    local gitattr_line="*.md filter=md-age diff=md-age"
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel)
+    local gitattr="$repo_root/.gitattributes"
+
+    if [[ -f "$gitattr" ]] && grep -qF "$gitattr_line" "$gitattr"; then
+        echo "md-age: .gitattributes already configured"
+    else
+        echo "$gitattr_line" >> "$gitattr"
+        echo "md-age: added '$gitattr_line' to .gitattributes"
+    fi
 }
 git_config() {
     local cmd="${1:-}"
