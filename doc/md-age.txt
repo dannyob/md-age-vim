@@ -79,6 +79,15 @@ Git subcommands:~
 Files with `age-encrypt: yes` in frontmatter are encrypted on commit and
 decrypted on checkout. Other markdown files pass through unchanged.
 
+                                                *md-age-git-identity*
+Dynamic identities:~
+
+Use cmd: prefix to fetch identity from a command: >
+    md-age git config add -i "cmd:pass age/my-key"
+<
+This runs the command and uses its output as the identity, useful for
+password managers like pass or 1password-cli.
+
 KNOWN LIMITATIONS                               *md-age-limitations*
 
 Passphrase-protected identities are not currently supported when using

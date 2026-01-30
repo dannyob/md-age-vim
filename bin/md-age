@@ -179,6 +179,9 @@ Commands:
   remove -i <path>  Remove an identity file
 
 Identities are stored in .git/config (not version controlled).
+
+Use cmd: prefix to run a command that outputs the identity:
+  md-age git config add -i "cmd:pass age/my-key"
 EOF
             exit 0
             ;;
@@ -392,15 +395,22 @@ EOF
     fi
 
     # Build identity args
+    # Supports cmd: prefix for shell commands (e.g., "cmd:pass age/key")
     local id_args=""
     while IFS= read -r id; do
         [[ -z "$id" ]] && continue
-        id_args="$id_args -i $id"
+        if [[ "$id" == cmd:* ]]; then
+            # Extract command and use process substitution
+            local cmd="${id#cmd:}"
+            id_args="$id_args -i <($cmd)"
+        else
+            id_args="$id_args -i $id"
+        fi
     done <<< "$identities"
 
-    # Try to decrypt
+    # Try to decrypt (use eval to expand process substitutions from cmd: identities)
     local decrypted
-    if decrypted=$(printf '%s' "$body" | $age_cmd -d $id_args 2>/dev/null); then
+    if decrypted=$(eval "printf '%s' \"\$body\" | $age_cmd -d $id_args" 2>/dev/null); then
         # Success - output frontmatter + decrypted
         printf '%s' "$frontmatter"
         printf '%s\n' "$decrypted"
