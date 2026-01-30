@@ -356,9 +356,15 @@ EOF
         exit 0
     fi
 
-    # Read all stdin
+    # Read content: from file argument (textconv) or stdin (filter)
     local content
-    content=$(cat)
+    if [[ -n "$filename" ]] && [[ -f "$filename" ]]; then
+        # textconv mode: read from file
+        content=$(cat "$filename")
+    else
+        # filter mode: read from stdin
+        content=$(cat)
+    fi
 
     # Parse frontmatter
     if ! parse_frontmatter "$content"; then
