@@ -161,8 +161,8 @@ EOF
     git config filter.md-age.smudge "$cmd_prefix git smudge %f"
     git config filter.md-age.required true
 
-    # Set up diff (textconv needs to read from file, so pipe through cat)
-    git config diff.md-age.textconv "cat %f | $cmd_prefix git smudge %f"
+    # Set up diff (textconv receives filename as $1, not via %f)
+    git config diff.md-age.textconv "sh -c 'cat \"\$1\" | $cmd_prefix git smudge \"\$1\"' --"
 
     echo "md-age: filter configured in .git/config"
     echo "  md-age: $md_age_path"
