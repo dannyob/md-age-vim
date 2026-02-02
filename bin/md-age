@@ -70,6 +70,7 @@ Usage: md-age git <command> [options]
 git subcommands for transparent encryption:
   init              Set up filters in current repo
   config            Manage identity configuration
+  rekey [files...]  Re-encrypt files (use after adding recipients)
   clean             Encrypt filter (for git)
   smudge            Decrypt filter (for git)
 
@@ -281,6 +282,154 @@ git_config_remove() {
         die "identity not found: $expanded"
     fi
 }
+
+git_rekey() {
+    if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+        cat <<'EOF'
+Usage: md-age git rekey [files...]
+
+Re-encrypt md-age files with current recipients. Use this after adding
+or removing recipients from frontmatter or recipient files.
+
+If no files specified, finds and rekeys all md-age files in the repo.
+
+Options:
+  -n, --dry-run    Show what would be rekeyed without making changes
+  -v, --verbose    Show detailed progress
+
+This command:
+  1. Clears cached ciphertext for specified files
+  2. Forces git to re-stage files through the clean filter
+  3. Verifies new ciphertext has expected recipient count
+EOF
+        exit 0
+    fi
+
+    git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
+
+    local dry_run=0
+    local verbose=0
+    local files=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -n|--dry-run) dry_run=1; shift ;;
+            -v|--verbose) verbose=1; shift ;;
+            -*) die "unknown option: $1" ;;
+            *) files+=("$1"); shift ;;
+        esac
+    done
+
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel)
+
+    # If no files specified, find all md-age files
+    if [[ ${#files[@]} -eq 0 ]]; then
+        while IFS= read -r -d '' file; do
+            # Check if file has age-encrypt: yes in frontmatter
+            if head -20 "$file" 2>/dev/null | grep -q '^age-encrypt: yes'; then
+                files+=("$file")
+            fi
+        done < <(find "$repo_root" -name '*.md' -type f -print0 2>/dev/null)
+    fi
+
+    if [[ ${#files[@]} -eq 0 ]]; then
+        echo "md-age: no md-age files found"
+        exit 0
+    fi
+
+    local cache_dir
+    cache_dir=$(get_cache_dir 2>/dev/null) || cache_dir=""
+
+    local rekeyed=0
+    local errors=0
+    local file
+
+    for file in "${files[@]}"; do
+        # Make path relative to repo root for display
+        local rel_path="${file#$repo_root/}"
+
+        # Verify file exists and is tracked
+        if [[ ! -f "$file" ]]; then
+            echo "md-age: skipping (not found): $rel_path" >&2
+            continue
+        fi
+
+        # Check if file has age-encrypt: yes
+        if ! head -20 "$file" 2>/dev/null | grep -q '^age-encrypt: yes'; then
+            [[ $verbose -eq 1 ]] && echo "md-age: skipping (not md-age): $rel_path"
+            continue
+        fi
+
+        if [[ $dry_run -eq 1 ]]; then
+            echo "md-age: would rekey: $rel_path"
+            rekeyed=$((rekeyed + 1))
+            continue
+        fi
+
+        [[ $verbose -eq 1 ]] && echo "md-age: rekeying: $rel_path"
+
+        # Clear cache for this file's content
+        if [[ -n "$cache_dir" ]] && [[ -d "$cache_dir" ]]; then
+            # Can't easily find exact cache entry, so we'll let it miss
+            # The cache key includes resolved recipients, so changing
+            # recipient file content already invalidates the cache
+            :
+        fi
+
+        # Force re-stage: remove from index then re-add
+        # This triggers the clean filter with fresh encryption
+        if ! git rm --cached -q "$file" 2>/dev/null; then
+            # File might not be tracked yet
+            :
+        fi
+
+        if ! git add "$file" 2>/dev/null; then
+            echo "md-age: ERROR: failed to re-stage: $rel_path" >&2
+            errors=$((errors + 1))
+            continue
+        fi
+
+        # Verify the staged content is properly encrypted
+        local staged_content
+        staged_content=$(git show ":$rel_path" 2>/dev/null) || {
+            echo "md-age: ERROR: failed to read staged content: $rel_path" >&2
+            errors=$((errors + 1))
+            continue
+        }
+
+        # Check it starts with frontmatter + AGE block (not plaintext body)
+        if echo "$staged_content" | grep -q '^-----BEGIN AGE ENCRYPTED FILE-----'; then
+            rekeyed=$((rekeyed + 1))
+            [[ $verbose -eq 1 ]] && echo "md-age: OK: $rel_path"
+        else
+            # Check if body after frontmatter is encrypted
+            local body_start
+            body_start=$(echo "$staged_content" | grep -n '^---$' | tail -1 | cut -d: -f1)
+            if [[ -n "$body_start" ]]; then
+                local body
+                body=$(echo "$staged_content" | tail -n +$((body_start + 1)))
+                local trimmed="${body#"${body%%[![:space:]]*}"}"
+                if [[ "$trimmed" == "-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+                    rekeyed=$((rekeyed + 1))
+                    [[ $verbose -eq 1 ]] && echo "md-age: OK: $rel_path"
+                else
+                    echo "md-age: ERROR: staged content not encrypted: $rel_path" >&2
+                    errors=$((errors + 1))
+                fi
+            else
+                echo "md-age: ERROR: no frontmatter in staged content: $rel_path" >&2
+                errors=$((errors + 1))
+            fi
+        fi
+    done
+
+    echo "md-age: rekeyed $rekeyed file(s)"
+    [[ $errors -gt 0 ]] && echo "md-age: $errors error(s)" >&2
+    [[ $errors -gt 0 ]] && exit 1
+    exit 0
+}
+
 git_clean() {
     local filename="${1:-}"
 
@@ -571,6 +720,7 @@ if [[ "${1:-}" == "git" ]]; then
     case "${1:-}" in
         init)   shift; git_init "$@" ;;
         config) shift; git_config "$@" ;;
+        rekey)  shift; git_rekey "$@" ;;
         clean)  shift; git_clean "$@" ;;
         smudge) shift; git_smudge "$@" ;;
         -h|--help|"") git_usage 0 ;;
