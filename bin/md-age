@@ -370,9 +370,16 @@ EOF
         exit 1
     fi
 
-    # Compute cache key
+    # Resolve recipients to actual keys (needed for both cache key and encryption)
+    local age_args
+    local file_dir
+    file_dir=$(dirname "$filename")
+    age_args=$(build_recipient_args "$recipients" "$file_dir")
+
+    # Compute cache key using RESOLVED recipients (not frontmatter paths)
+    # This ensures cache invalidates when recipient file contents change
     local cache_key
-    cache_key=$(compute_cache_key "$recipients" "$body")
+    cache_key=$(compute_cache_key "$age_args" "$body")
 
     # Check cache
     local encrypted
@@ -384,10 +391,6 @@ EOF
     fi
 
     # Cache miss - encrypt
-    local age_args
-    local file_dir
-    file_dir=$(dirname "$filename")
-    age_args=$(build_recipient_args "$recipients" "$file_dir")
 
     encrypted=$(printf '%s' "$body" | $age_cmd -e -a $age_args) || {
         echo "md-age: clean: encryption failed for $filename" >&2
