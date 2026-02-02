@@ -317,8 +317,9 @@ EOF
         return 0
     fi
 
-    # Check if body is already encrypted
-    if [[ "$body" == *"-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+    # Check if body is already encrypted (must START with marker, not just contain it)
+    local trimmed_body="${body#"${body%%[![:space:]]*}"}"  # strip leading whitespace
+    if [[ "$trimmed_body" == "-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
         # Already encrypted - decrypt first so we can re-encrypt
         # This handles the case where recipients changed in frontmatter
         local identities
@@ -353,6 +354,11 @@ EOF
             printf '%s' "$content"
             return 0
         fi
+    elif [[ "$body" == *"-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+        # Body contains AGE marker but doesn't start with it - mixed content error
+        echo "md-age: clean: ERROR: $filename has mixed plaintext and encrypted content" >&2
+        echo "md-age: clean: This usually means the file was corrupted. Fix manually." >&2
+        exit 1
     fi
 
     # Extract recipients
@@ -431,9 +437,14 @@ EOF
         return 0
     fi
 
-    # Check if body is encrypted
-    if [[ "$body" != *"-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+    # Check if body is encrypted (must START with marker)
+    local trimmed_body="${body#"${body%%[![:space:]]*}"}"  # strip leading whitespace
+    if [[ "$trimmed_body" != "-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
         # Not encrypted - pass through (new file perhaps)
+        # But warn if it contains AGE marker somewhere (corrupted state)
+        if [[ "$body" == *"-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+            echo "md-age: smudge: WARNING: $filename has mixed plaintext and encrypted content" >&2
+        fi
         printf '%s' "$content"
         return 0
     fi
