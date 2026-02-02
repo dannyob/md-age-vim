@@ -317,6 +317,44 @@ EOF
         return 0
     fi
 
+    # Check if body is already encrypted
+    if [[ "$body" == *"-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+        # Already encrypted - decrypt first so we can re-encrypt
+        # This handles the case where recipients changed in frontmatter
+        local identities
+        identities=$(git config --get-all md-age.config.identity 2>/dev/null || true)
+
+        if [[ -z "$identities" ]]; then
+            # No identity to decrypt - pass through as-is
+            # (can't re-encrypt without decrypting first)
+            printf '%s' "$content"
+            return 0
+        fi
+
+        # Build identity args
+        local id_args=""
+        while IFS= read -r id; do
+            [[ -z "$id" ]] && continue
+            if [[ "$id" == cmd:* ]]; then
+                local cmd="${id#cmd:}"
+                id_args="$id_args -i <($cmd)"
+            else
+                id_args="$id_args -i $id"
+            fi
+        done <<< "$identities"
+
+        # Decrypt the body
+        local decrypted
+        if decrypted=$(eval "printf '%s' \"\$body\" | $age_cmd -d $id_args" 2>/dev/null); then
+            body="$decrypted"
+        else
+            # Decryption failed - pass through unchanged
+            # (maybe encrypted for different recipient we don't have)
+            printf '%s' "$content"
+            return 0
+        fi
+    fi
+
     # Extract recipients
     local recipients
     recipients=$(echo "$frontmatter" | extract_recipients)
