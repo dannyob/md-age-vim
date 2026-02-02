@@ -55,9 +55,11 @@ Frontmatter format:
   ---
   age-encrypt: yes
   age-recipients:
-    - age1...        # age public key
-    - ssh-ed25519... # SSH public key
-    - ~/.age/file    # recipients file path
+    - age1...              # age public key
+    - ssh-ed25519...       # SSH public key
+    - git:path/to/file     # recipients file relative to git root
+    - ~/.age/file          # recipients file (absolute or ~)
+    - ../relative/file     # recipients file relative to this file
   ---
 EOF
     exit "${1:-0}"
@@ -697,10 +699,22 @@ build_recipient_args() {
     local recipients="$1"
     local base_dir="${2:-.}"
     local args=""
+    local git_root=""
+
     while IFS= read -r r; do
         [[ -z "$r" ]] && continue
         if [[ "$r" == age1* ]] || [[ "$r" == ssh-* ]]; then
             args="$args -r $r"
+        elif [[ "$r" == git:* ]]; then
+            # git: prefix - resolve from git repo root
+            if [[ -z "$git_root" ]]; then
+                git_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+                    echo "md-age: ERROR: git: prefix used but not in a git repository" >&2
+                    return 1
+                }
+            fi
+            local git_path="${r#git:}"
+            args="$args -R $git_root/$git_path"
         else
             # Expand ~ for file paths
             local expanded="${r/#\~/$HOME}"
