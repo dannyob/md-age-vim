@@ -9,6 +9,9 @@
 
 set -euo pipefail
 
+# Use MD_AGE_COMMAND env var or default to 'age'
+age_cmd="${MD_AGE_COMMAND:-age}"
+
 usage() {
     cat <<'EOF'
 Usage: md-age [-e|-d] [-r RECIPIENT]... [-i IDENTITY]... [-o OUTPUT] [FILE]
@@ -142,15 +145,28 @@ EOF
     # Check we're in a git repo
     git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
 
+    # Get absolute path to this script
+    local md_age_path
+    md_age_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+    # Find age command
+    local age_path
+    age_path=$(command -v age 2>/dev/null) || die "age not found in PATH"
+
+    # Build command prefix with absolute paths
+    local cmd_prefix="MD_AGE_COMMAND=$age_path $md_age_path"
+
     # Set up filter
-    git config filter.md-age.clean "md-age git clean %f"
-    git config filter.md-age.smudge "md-age git smudge %f"
+    git config filter.md-age.clean "$cmd_prefix git clean %f"
+    git config filter.md-age.smudge "$cmd_prefix git smudge %f"
     git config filter.md-age.required true
 
-    # Set up diff
-    git config diff.md-age.textconv "md-age git smudge"
+    # Set up diff (textconv needs to read from file, so pipe through cat)
+    git config diff.md-age.textconv "cat %f | $cmd_prefix git smudge %f"
 
     echo "md-age: filter configured in .git/config"
+    echo "  md-age: $md_age_path"
+    echo "  age:    $age_path"
 
     # Add to .gitattributes if not already present
     local gitattr_line="*.md filter=md-age diff=md-age"
@@ -356,15 +372,9 @@ EOF
         exit 0
     fi
 
-    # Read content: from file argument (textconv) or stdin (filter)
+    # Always read from stdin (git filter provides content via stdin)
     local content
-    if [[ -n "$filename" ]] && [[ -f "$filename" ]]; then
-        # textconv mode: read from file
-        content=$(cat "$filename")
-    else
-        # filter mode: read from stdin
-        content=$(cat)
-    fi
+    content=$(cat)
 
     # Parse frontmatter
     if ! parse_frontmatter "$content"; then
@@ -430,9 +440,6 @@ die() {
     echo "md-age: $*" >&2
     exit 1
 }
-
-# Set age command early (needed by git subcommands)
-age_cmd="${MD_AGE_COMMAND:-age}"
 
 # Parse frontmatter - sets global vars: FRONTMATTER and BODY
 # Returns 1 if no frontmatter found
