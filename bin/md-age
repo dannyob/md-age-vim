@@ -371,6 +371,10 @@ EOF
 
         [[ $verbose -eq 1 ]] && echo "md-age: rekeying: $rel_path"
 
+        # Save old staged content to detect if re-encryption actually happened
+        local old_staged=""
+        old_staged=$(git show ":$rel_path" 2>/dev/null) || true
+
         # Clear cache for this file's content
         if [[ -n "$cache_dir" ]] && [[ -d "$cache_dir" ]]; then
             # Can't easily find exact cache entry, so we'll let it miss
@@ -399,6 +403,26 @@ EOF
             errors=$((errors + 1))
             continue
         }
+
+        # Check if content actually changed
+        # If unchanged AND working copy is still encrypted, we couldn't decrypt
+        if [[ -n "$old_staged" ]] && [[ "$staged_content" == "$old_staged" ]]; then
+            # Check if working copy body is encrypted (couldn't decrypt)
+            local wc_body
+            wc_body=$(sed -n '/^---$/,/^---$/d; p' "$file" | head -5)
+            local wc_trimmed="${wc_body#"${wc_body%%[![:space:]]*}"}"
+            if [[ "$wc_trimmed" == "-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+                echo "md-age: ERROR: could not decrypt (missing identity?): $rel_path" >&2
+                errors=$((errors + 1))
+                # Restore the old staged content
+                git add "$file" 2>/dev/null || true
+                continue
+            fi
+            # Working copy is decrypted, content just hasn't changed - that's OK
+            [[ $verbose -eq 1 ]] && echo "md-age: OK (unchanged): $rel_path"
+            rekeyed=$((rekeyed + 1))
+            continue
+        fi
 
         # Check it starts with frontmatter + AGE block (not plaintext body)
         if echo "$staged_content" | grep -q '^-----BEGIN AGE ENCRYPTED FILE-----'; then
