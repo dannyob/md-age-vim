@@ -10,7 +10,7 @@ test: test-vim test-cli
 test-tap: test-vim-tap test-cli-tap
 
 test-vim: deps
-	$(VIM) --headless \
+	$(VIM) --headless -u NONE \
 		-c "set rtp+=$(TESTIFY_DIR)" \
 		-c "set rtp+=." \
 		-c "runtime plugin/testify.vim" \
@@ -21,7 +21,7 @@ test-cli:
 	./t/md-age-test.sh
 
 test-vim-tap: deps
-	@$(VIM) --headless \
+	@$(VIM) --headless -u NONE \
 		-c "set rtp+=$(TESTIFY_DIR)" \
 		-c "set rtp+=." \
 		-c "runtime plugin/testify.vim" \
