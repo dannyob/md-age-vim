@@ -668,10 +668,78 @@ die() {
     exit 1
 }
 
+# Normalize a YAML value (strip quotes and whitespace, lowercase)
+normalize_yaml_value() {
+    local v="$1"
+    # Trim whitespace
+    v="${v#"${v%%[![:space:]]*}"}"
+    v="${v%"${v##*[![:space:]]}"}"
+    # Strip quotes
+    if [[ "$v" =~ ^\'(.*)\'$ ]] || [[ "$v" =~ ^\"(.*)\"$ ]]; then
+        v="${BASH_REMATCH[1]}"
+    fi
+    # Lowercase
+    echo "${v,,}"
+}
+
+# Validate age-encrypt value and warn if unrecognized
+# Args: raw_value
+# Returns 0 if valid, 1 if invalid (with warning)
+validate_age_encrypt_value() {
+    local raw_value="$1"
+
+    if [[ -z "$raw_value" ]]; then
+        return 0  # Missing is OK (not an error, just means no encryption)
+    fi
+
+    local value
+    value=$(normalize_yaml_value "$raw_value")
+
+    case "$value" in
+        yes|true|on|no|false|off)
+            return 0
+            ;;
+        *)
+            echo "md-age: WARNING: unrecognized age-encrypt value: $raw_value" >&2
+            echo "md-age: Expected: yes/no/true/false/on/off" >&2
+            return 1
+            ;;
+    esac
+}
+
 # Check if frontmatter indicates encryption is enabled
-# Handles: yes, 'yes', "yes", true, 'true', "true" with flexible whitespace
+# Accepts YAML 1.1 booleans: yes/true/on (case-insensitive, with optional quotes)
+# Returns 0 (success) if should encrypt, 1 otherwise
+# Warns on unrecognized values
 should_encrypt() {
-    grep -qE "^age-encrypt:[[:space:]]*['\"]?(yes|true)['\"]?[[:space:]]*$"
+    local input
+    input=$(cat)
+
+    # Extract age-encrypt value
+    local raw_value
+    raw_value=$(echo "$input" | grep -E "^age-encrypt:" | head -1 | sed 's/^age-encrypt:[[:space:]]*//')
+
+    if [[ -z "$raw_value" ]]; then
+        return 1
+    fi
+
+    # Validate and warn if needed
+    if ! validate_age_encrypt_value "$raw_value"; then
+        return 1
+    fi
+
+    local value
+    value=$(normalize_yaml_value "$raw_value")
+
+    # Check for YAML 1.1 boolean true values
+    case "$value" in
+        yes|true|on)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 # Parse frontmatter - sets global vars: FRONTMATTER and BODY
@@ -869,6 +937,11 @@ elif [[ "$mode" == "encrypt" ]]; then
             age_args="$age_args -R ${rf/#\~/$HOME}"
         done
     elif [[ -n "$frontmatter" ]]; then
+        # Validate age-encrypt value if present (warn on typos)
+        age_encrypt_val=$(echo "$frontmatter" | grep -E "^age-encrypt:" | head -1 | sed 's/^age-encrypt:[[:space:]]*//')
+        if [[ -n "$age_encrypt_val" ]]; then
+            validate_age_encrypt_value "$age_encrypt_val" || die "fix the age-encrypt value and retry"
+        fi
         # Extract from frontmatter
         fm_recipients=$(echo "$frontmatter" | extract_recipients)
         [[ -n "$fm_recipients" ]] || die "no recipients specified and none in frontmatter"

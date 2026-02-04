@@ -290,6 +290,68 @@ EOF
     echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
 }
 
+test_age_encrypt_on() {
+    cat > "$TMPDIR/input.md" << EOF
+---
+age-encrypt: on
+age-recipients:
+  - $RECIPIENT
+---
+YAML on boolean
+EOF
+
+    local output
+    output=$("$MD_AGE" -e "$TMPDIR/input.md")
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
+}
+
+test_age_encrypt_case_insensitive() {
+    cat > "$TMPDIR/input.md" << EOF
+---
+age-encrypt: YES
+age-recipients:
+  - $RECIPIENT
+---
+Uppercase YES
+EOF
+
+    local output
+    output=$("$MD_AGE" -e "$TMPDIR/input.md")
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE" || return 1
+
+    cat > "$TMPDIR/input2.md" << EOF
+---
+age-encrypt: True
+age-recipients:
+  - $RECIPIENT
+---
+Mixed case True
+EOF
+
+    output=$("$MD_AGE" -e "$TMPDIR/input2.md")
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
+}
+
+test_age_encrypt_unrecognized_warns() {
+    cat > "$TMPDIR/input.md" << EOF
+---
+age-encrypt: yess
+age-recipients:
+  - $RECIPIENT
+---
+Typo in age-encrypt value
+EOF
+
+    # Should fail and warn
+    local output
+    if output=$("$MD_AGE" -e "$TMPDIR/input.md" 2>&1); then
+        # Should have failed
+        return 1
+    fi
+    # Should contain warning about unrecognized value
+    echo "$output" | grep -q "unrecognized age-encrypt value"
+}
+
 test_explicit_recipient_overrides_frontmatter() {
     # Create a second key
     local key2="$TMPDIR/key2.txt"
@@ -623,6 +685,9 @@ main() {
     run_test "recipients without leading indentation" test_recipients_no_indentation
     run_test "age-encrypt with quoted yes" test_age_encrypt_quoted
     run_test "age-encrypt: true" test_age_encrypt_true
+    run_test "age-encrypt: on" test_age_encrypt_on
+    run_test "age-encrypt case insensitive" test_age_encrypt_case_insensitive
+    run_test "age-encrypt unrecognized value warns" test_age_encrypt_unrecognized_warns
     run_test "explicit -r overrides frontmatter recipients" test_explicit_recipient_overrides_frontmatter
     run_test "handles multiline body" test_multiline_body
     run_test "error: no recipients specified" test_error_no_recipients

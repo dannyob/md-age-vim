@@ -12,6 +12,23 @@ function! mdage#NormalizeYamlValue(value) abort
   return trim(v)
 endfunction
 
+" Check if a value is a recognized YAML boolean
+" Returns: 1 if recognized (yes/no/true/false/on/off), 0 otherwise
+function! mdage#ValidateEncryptValue(raw_value) abort
+  let v = tolower(mdage#NormalizeYamlValue(a:raw_value))
+  " YAML 1.1 boolean values
+  return v ==# 'yes' || v ==# 'no' ||
+       \ v ==# 'true' || v ==# 'false' ||
+       \ v ==# 'on' || v ==# 'off'
+endfunction
+
+" Check if a normalized value means "encrypt"
+" Returns: 1 if truthy (yes/true/on), 0 otherwise
+function! mdage#IsEncryptEnabled(raw_value) abort
+  let v = tolower(mdage#NormalizeYamlValue(a:raw_value))
+  return v ==# 'yes' || v ==# 'true' || v ==# 'on'
+endfunction
+
 " Check if lines start with frontmatter delimiters
 " Returns: 1 if frontmatter exists, 0 otherwise
 function! mdage#HasFrontmatter(lines) abort
@@ -164,14 +181,24 @@ endfunction
 
 " Check if file should be encrypted based on frontmatter
 " Returns: 1 if should encrypt, 0 otherwise
+" Warns if age-encrypt has an unrecognized value
 function! mdage#ShouldEncrypt(parsed) abort
   if a:parsed.end_line < 0
     return 0
   endif
   let raw_value = get(a:parsed.fields, 'age-encrypt', '')
-  let value = mdage#NormalizeYamlValue(raw_value)
-  " Accept 'yes' or 'true' (YAML 1.1 boolean literals)
-  return value ==# 'yes' || value ==# 'true'
+  if empty(raw_value)
+    return 0
+  endif
+  " Warn on unrecognized values (typos like 'yess', '1', etc.)
+  if !mdage#ValidateEncryptValue(raw_value)
+    echohl WarningMsg
+    echom 'md-age: WARNING: unrecognized age-encrypt value: ' . raw_value
+    echom 'md-age: Expected: yes/no/true/false/on/off (file will NOT be encrypted)'
+    echohl None
+    return 0
+  endif
+  return mdage#IsEncryptEnabled(raw_value)
 endfunction
 
 " Called on BufReadPost - decrypt if needed

@@ -82,3 +82,56 @@ function! s:TestShouldEncryptTrue()
   call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
 endfunction
 call testify#it('should encrypt when age-encrypt: true', function('s:TestShouldEncryptTrue'))
+
+" YAML 1.1 boolean case variants
+function! s:TestShouldEncryptYesUppercase()
+  let parsed = {'fields': {'age-encrypt': 'YES'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
+endfunction
+call testify#it('should encrypt when age-encrypt: YES', function('s:TestShouldEncryptYesUppercase'))
+
+function! s:TestShouldEncryptOn()
+  let parsed = {'fields': {'age-encrypt': 'on'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
+endfunction
+call testify#it('should encrypt when age-encrypt: on', function('s:TestShouldEncryptOn'))
+
+function! s:TestShouldEncryptTrueMixedCase()
+  let parsed = {'fields': {'age-encrypt': 'True'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
+endfunction
+call testify#it('should encrypt when age-encrypt: True', function('s:TestShouldEncryptTrueMixedCase'))
+
+" Explicit false values
+function! s:TestShouldNotEncryptFalse()
+  let parsed = {'fields': {'age-encrypt': 'false'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 0)
+endfunction
+call testify#it('should not encrypt when age-encrypt: false', function('s:TestShouldNotEncryptFalse'))
+
+function! s:TestShouldNotEncryptOff()
+  let parsed = {'fields': {'age-encrypt': 'off'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 0)
+endfunction
+call testify#it('should not encrypt when age-encrypt: off', function('s:TestShouldNotEncryptOff'))
+
+" Validate unrecognized values
+function! s:TestValidateEncryptValueRecognized()
+  call testify#assert#equals(mdage#ValidateEncryptValue('yes'), 1)
+  call testify#assert#equals(mdage#ValidateEncryptValue('no'), 1)
+  call testify#assert#equals(mdage#ValidateEncryptValue('true'), 1)
+  call testify#assert#equals(mdage#ValidateEncryptValue('false'), 1)
+  call testify#assert#equals(mdage#ValidateEncryptValue('on'), 1)
+  call testify#assert#equals(mdage#ValidateEncryptValue('off'), 1)
+  call testify#assert#equals(mdage#ValidateEncryptValue('YES'), 1)
+  call testify#assert#equals(mdage#ValidateEncryptValue("'yes'"), 1)
+endfunction
+call testify#it('validates recognized age-encrypt values', function('s:TestValidateEncryptValueRecognized'))
+
+function! s:TestValidateEncryptValueUnrecognized()
+  call testify#assert#equals(mdage#ValidateEncryptValue('yess'), 0)
+  call testify#assert#equals(mdage#ValidateEncryptValue('1'), 0)
+  call testify#assert#equals(mdage#ValidateEncryptValue('enabled'), 0)
+  call testify#assert#equals(mdage#ValidateEncryptValue(''), 0)
+endfunction
+call testify#it('rejects unrecognized age-encrypt values', function('s:TestValidateEncryptValueUnrecognized'))
