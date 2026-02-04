@@ -99,10 +99,43 @@ function! mdage#GetRecipients(parsed, lines) abort
   return recipients
 endfunction
 
+" Resolve a recipient file path
+" Handles: git: prefix, ~ expansion, relative paths
+" Args: path, base_dir (directory to resolve relative paths from)
+" Returns: resolved absolute path
+function! mdage#ResolveRecipientPath(path, base_dir) abort
+  let p = a:path
+
+  " Handle git: prefix - resolve from git repo root
+  if p =~# '^git:'
+    let git_path = p[4:]  " Remove 'git:' prefix
+    let git_root = systemlist('git rev-parse --show-toplevel')[0]
+    if v:shell_error
+      echoerr 'md-age: git: prefix used but not in a git repository'
+      return p
+    endif
+    return git_root . '/' . git_path
+  endif
+
+  " Expand ~ to home directory
+  if p =~# '^\~'
+    let p = $HOME . p[1:]
+  endif
+
+  " Resolve relative paths from base_dir
+  if p !~# '^/'
+    let p = simplify(a:base_dir . '/' . p)
+  endif
+
+  return p
+endfunction
+
 " Build CLI args for recipients
 " age1... and ssh-... use -r, file paths use -R
+" Args: recipients list, base_dir (optional, for resolving relative paths)
 " Returns: string of CLI args
-function! mdage#BuildRecipientArgs(recipients) abort
+function! mdage#BuildRecipientArgs(recipients, ...) abort
+  let base_dir = a:0 > 0 ? a:1 : getcwd()
   let args = []
   for r in a:recipients
     if r =~# '^age1' || r =~# '^ssh-'
@@ -110,16 +143,19 @@ function! mdage#BuildRecipientArgs(recipients) abort
       let escaped = substitute(r, ' ', '\\ ', 'g')
       call add(args, '-r ' . escaped)
     else
-      " File path - use -R
-      call add(args, '-R ' . r)
+      " File path - resolve and use -R
+      let resolved = mdage#ResolveRecipientPath(r, base_dir)
+      call add(args, '-R ' . resolved)
     endif
   endfor
   return join(args, ' ')
 endfunction
 
 " Encrypt plaintext using age
+" Args: plaintext, recipients, base_dir (optional, for resolving recipient paths)
 " Returns: {'success': 0/1, 'ciphertext': '...', 'error': '...'}
-function! mdage#Encrypt(plaintext, recipients) abort
+function! mdage#Encrypt(plaintext, recipients, ...) abort
+  let base_dir = a:0 > 0 ? a:1 : getcwd()
   let result = {'success': 0, 'ciphertext': '', 'error': ''}
 
   if empty(a:recipients)
@@ -128,7 +164,7 @@ function! mdage#Encrypt(plaintext, recipients) abort
   endif
 
   let cmd = get(g:, 'md_age_command', 'age')
-  let recipient_args = mdage#BuildRecipientArgs(a:recipients)
+  let recipient_args = mdage#BuildRecipientArgs(a:recipients, base_dir)
 
   " Use temp file to avoid shell escaping issues
   let tmpfile = tempname()
@@ -300,8 +336,9 @@ function! mdage#OnBufWritePre() abort
   let b:md_age_plaintext = body
   let b:md_age_frontmatter_end = parsed.end_line
 
-  " Encrypt
-  let result = mdage#Encrypt(body, recipients)
+  " Encrypt (pass file's directory for resolving relative recipient paths)
+  let file_dir = expand('%:p:h')
+  let result = mdage#Encrypt(body, recipients, file_dir)
   if !result.success
     echoerr result.error
     throw 'md-age: save aborted'

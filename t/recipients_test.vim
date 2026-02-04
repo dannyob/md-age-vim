@@ -42,15 +42,16 @@ call testify#it('builds -r arg for SSH key', function('s:TestBuildRecipientArgsS
 
 function! s:TestBuildRecipientArgsFile()
   let recipients = ['~/.age/recipients.txt']
-  let args = mdage#BuildRecipientArgs(recipients)
-  call testify#assert#equals(args, '-R ~/.age/recipients.txt')
+  let args = mdage#BuildRecipientArgs(recipients, '/tmp')
+  " ~ should be expanded to $HOME
+  call testify#assert#equals(args, '-R ' . $HOME . '/.age/recipients.txt')
 endfunction
 call testify#it('builds -R arg for file path', function('s:TestBuildRecipientArgsFile'))
 
 function! s:TestBuildRecipientArgsMultiple()
   let recipients = ['age1abc', '~/.age/keys.txt']
-  let args = mdage#BuildRecipientArgs(recipients)
-  call testify#assert#equals(args, '-r age1abc -R ~/.age/keys.txt')
+  let args = mdage#BuildRecipientArgs(recipients, '/tmp')
+  call testify#assert#equals(args, '-r age1abc -R ' . $HOME . '/.age/keys.txt')
 endfunction
 call testify#it('builds multiple recipient args', function('s:TestBuildRecipientArgsMultiple'))
 
@@ -83,3 +84,34 @@ function! s:TestParseRecipientsNoSpaceAfterDash()
   call testify#assert#equals(recipients[0], 'git:keys/editors')
 endfunction
 call testify#it('parses recipients without space after dash', function('s:TestParseRecipientsNoSpaceAfterDash'))
+
+" Tests for path resolution (git: prefix, ~, relative paths)
+function! s:TestBuildRecipientArgsExpandsTilde()
+  let recipients = ['~/.age/keys.txt']
+  let args = mdage#BuildRecipientArgs(recipients, '/tmp')
+  call testify#assert#equals(args, '-R ' . $HOME . '/.age/keys.txt')
+endfunction
+call testify#it('expands ~ in recipient file paths', function('s:TestBuildRecipientArgsExpandsTilde'))
+
+function! s:TestBuildRecipientArgsGitPrefix()
+  " This test requires being in a git repo
+  let git_root = systemlist('git rev-parse --show-toplevel')[0]
+  let recipients = ['git:assets/keys/editors.txt']
+  let args = mdage#BuildRecipientArgs(recipients, '/tmp')
+  call testify#assert#equals(args, '-R ' . git_root . '/assets/keys/editors.txt')
+endfunction
+call testify#it('resolves git: prefix to repo root', function('s:TestBuildRecipientArgsGitPrefix'))
+
+function! s:TestBuildRecipientArgsRelativePath()
+  let recipients = ['../keys/editors.txt']
+  let args = mdage#BuildRecipientArgs(recipients, '/home/user/docs')
+  call testify#assert#equals(args, '-R /home/user/keys/editors.txt')
+endfunction
+call testify#it('resolves relative paths from base dir', function('s:TestBuildRecipientArgsRelativePath'))
+
+function! s:TestBuildRecipientArgsAbsolutePath()
+  let recipients = ['/etc/age/keys.txt']
+  let args = mdage#BuildRecipientArgs(recipients, '/tmp')
+  call testify#assert#equals(args, '-R /etc/age/keys.txt')
+endfunction
+call testify#it('keeps absolute paths unchanged', function('s:TestBuildRecipientArgsAbsolutePath'))
