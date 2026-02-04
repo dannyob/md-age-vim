@@ -232,6 +232,64 @@ EOF
     echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
 }
 
+# Tests for flexible YAML parsing (issue: frontmatter parsing too strict)
+test_recipients_no_indentation() {
+    cat > "$TMPDIR/input.md" << EOF
+---
+age-encrypt: yes
+age-recipients:
+- $RECIPIENT
+---
+Recipients without leading indentation
+EOF
+
+    local output
+    output=$("$MD_AGE" -e "$TMPDIR/input.md")
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
+}
+
+test_age_encrypt_quoted() {
+    cat > "$TMPDIR/input.md" << EOF
+---
+age-encrypt: 'yes'
+age-recipients:
+  - $RECIPIENT
+---
+Single quoted yes
+EOF
+
+    local output
+    output=$("$MD_AGE" -e "$TMPDIR/input.md")
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE" || return 1
+
+    cat > "$TMPDIR/input2.md" << EOF
+---
+age-encrypt: "yes"
+age-recipients:
+  - $RECIPIENT
+---
+Double quoted yes
+EOF
+
+    output=$("$MD_AGE" -e "$TMPDIR/input2.md")
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
+}
+
+test_age_encrypt_true() {
+    cat > "$TMPDIR/input.md" << EOF
+---
+age-encrypt: true
+age-recipients:
+  - $RECIPIENT
+---
+Boolean true instead of yes
+EOF
+
+    local output
+    output=$("$MD_AGE" -e "$TMPDIR/input.md")
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
+}
+
 test_explicit_recipient_overrides_frontmatter() {
     # Create a second key
     local key2="$TMPDIR/key2.txt"
@@ -562,6 +620,9 @@ main() {
     run_test "-o writes to output file" test_output_file_option
     run_test "reads from stdin" test_stdin_input
     run_test "uses recipients from frontmatter" test_recipients_from_frontmatter
+    run_test "recipients without leading indentation" test_recipients_no_indentation
+    run_test "age-encrypt with quoted yes" test_age_encrypt_quoted
+    run_test "age-encrypt: true" test_age_encrypt_true
     run_test "explicit -r overrides frontmatter recipients" test_explicit_recipient_overrides_frontmatter
     run_test "handles multiline body" test_multiline_body
     run_test "error: no recipients specified" test_error_no_recipients

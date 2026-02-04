@@ -329,7 +329,7 @@ EOF
     if [[ ${#files[@]} -eq 0 ]]; then
         while IFS= read -r -d '' file; do
             # Check if file has age-encrypt: yes in frontmatter
-            if head -20 "$file" 2>/dev/null | grep -q '^age-encrypt: yes'; then
+            if head -20 "$file" 2>/dev/null | should_encrypt; then
                 files+=("$file")
             fi
         done < <(find "$repo_root" -name '*.md' -type f -print0 2>/dev/null)
@@ -358,7 +358,7 @@ EOF
         fi
 
         # Check if file has age-encrypt: yes
-        if ! head -20 "$file" 2>/dev/null | grep -q '^age-encrypt: yes'; then
+        if ! head -20 "$file" 2>/dev/null | should_encrypt; then
             [[ $verbose -eq 1 ]] && echo "md-age: skipping (not md-age): $rel_path"
             continue
         fi
@@ -486,7 +486,7 @@ EOF
     body="${body%$'\n'}"  # Remove trailing newline
 
     # Check if this is an md-age file
-    if ! echo "$frontmatter" | grep -q '^age-encrypt: yes'; then
+    if ! echo "$frontmatter" | should_encrypt; then
         # Not an md-age file - pass through
         printf '%s' "$content"
         return 0
@@ -610,7 +610,7 @@ EOF
     body="${body%$'\n'}"
 
     # Check if this is an md-age file
-    if ! echo "$frontmatter" | grep -q '^age-encrypt: yes'; then
+    if ! echo "$frontmatter" | should_encrypt; then
         printf '%s' "$content"
         return 0
     fi
@@ -668,6 +668,12 @@ die() {
     exit 1
 }
 
+# Check if frontmatter indicates encryption is enabled
+# Handles: yes, 'yes', "yes", true, 'true', "true" with flexible whitespace
+should_encrypt() {
+    grep -qE "^age-encrypt:[[:space:]]*['\"]?(yes|true)['\"]?[[:space:]]*$"
+}
+
 # Parse frontmatter - sets global vars: FRONTMATTER and BODY
 # Returns 1 if no frontmatter found
 parse_frontmatter() {
@@ -704,15 +710,17 @@ parse_frontmatter() {
 }
 
 # Extract age-recipients from frontmatter (one per line)
+# Handles YAML variants: "- item", "  - item", "-item" (no space after dash)
 extract_recipients() {
     awk '
     /^age-recipients:/ { in_recip = 1; next }
-    in_recip && /^[[:space:]]+-[[:space:]]+/ {
-        sub(/^[[:space:]]+-[[:space:]]+/, "")
-        print
+    in_recip && /^---$/ { exit }
+    in_recip && /^[[:space:]]*-[[:space:]]*[^-]/ {
+        sub(/^[[:space:]]*-[[:space:]]*/, "")
+        if (length($0) > 0) print
         next
     }
-    in_recip && /^[^[:space:]]/ { exit }
+    in_recip && /^[^[:space:]-]/ { exit }
     '
 }
 

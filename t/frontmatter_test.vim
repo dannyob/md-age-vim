@@ -57,3 +57,28 @@ function! s:TestShouldEncryptNoFrontmatter()
   call testify#assert#equals(mdage#ShouldEncrypt(parsed), 0)
 endfunction
 call testify#it('should not encrypt with no frontmatter', function('s:TestShouldEncryptNoFrontmatter'))
+
+" Tests for flexible YAML parsing (issue: frontmatter parsing too strict)
+function! s:TestShouldEncryptSingleQuoted()
+  let parsed = {'fields': {'age-encrypt': "'yes'"}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
+endfunction
+call testify#it('should encrypt when age-encrypt: single quoted yes', function('s:TestShouldEncryptSingleQuoted'))
+
+function! s:TestShouldEncryptDoubleQuoted()
+  let parsed = {'fields': {'age-encrypt': '"yes"'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
+endfunction
+call testify#it('should encrypt when age-encrypt: double quoted yes', function('s:TestShouldEncryptDoubleQuoted'))
+
+function! s:TestShouldEncryptExtraWhitespace()
+  let parsed = {'fields': {'age-encrypt': ' yes'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
+endfunction
+call testify#it('should encrypt when age-encrypt has extra whitespace', function('s:TestShouldEncryptExtraWhitespace'))
+
+function! s:TestShouldEncryptTrue()
+  let parsed = {'fields': {'age-encrypt': 'true'}, 'end_line': 2}
+  call testify#assert#equals(mdage#ShouldEncrypt(parsed), 1)
+endfunction
+call testify#it('should encrypt when age-encrypt: true', function('s:TestShouldEncryptTrue'))

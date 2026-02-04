@@ -1,6 +1,17 @@
 " mdage.vim - Core functions for md-age-vim
 " License: AGPL-3.0-or-later
 
+" Normalize a YAML value by stripping quotes and whitespace
+" Handles: 'yes', "yes", yes, ' yes ', etc.
+function! mdage#NormalizeYamlValue(value) abort
+  let v = trim(a:value)
+  " Strip single or double quotes
+  if (v =~# "^'.*'$") || (v =~# '^".*"$')
+    let v = v[1:-2]
+  endif
+  return trim(v)
+endfunction
+
 " Check if lines start with frontmatter delimiters
 " Returns: 1 if frontmatter exists, 0 otherwise
 function! mdage#HasFrontmatter(lines) abort
@@ -54,12 +65,16 @@ function! mdage#GetRecipients(parsed, lines) abort
       continue
     endif
     if in_recipients
-      " Check if this is an array item (starts with whitespace and -)
-      let match = matchlist(line, '^\s\+- \(.*\)$')
+      " Check if this is an array item
+      " Accept: '- item', '  - item', '-item' (no space after dash)
+      let match = matchlist(line, '^\s*-\s*\(.\+\)$')
       if len(match) >= 2
         call add(recipients, match[1])
+      elseif line =~# '^\s*$'
+        " Blank line, continue
+        continue
       elseif line !~# '^\s'
-        " No longer indented, end of array
+        " Non-indented non-array line, end of array
         break
       endif
     endif
@@ -153,7 +168,10 @@ function! mdage#ShouldEncrypt(parsed) abort
   if a:parsed.end_line < 0
     return 0
   endif
-  return get(a:parsed.fields, 'age-encrypt', '') ==# 'yes'
+  let raw_value = get(a:parsed.fields, 'age-encrypt', '')
+  let value = mdage#NormalizeYamlValue(raw_value)
+  " Accept 'yes' or 'true' (YAML 1.1 boolean literals)
+  return value ==# 'yes' || value ==# 'true'
 endfunction
 
 " Called on BufReadPost - decrypt if needed
@@ -184,15 +202,24 @@ function! mdage#OnBufRead() abort
   let body_lines = lines[body_start:]
   let body = join(body_lines, "\n")
 
+  " Strip leading whitespace for check (handles blank lines after frontmatter)
+  " Note: [\n\t ]* matches newlines, tabs, and spaces
+  let trimmed_body = substitute(body, '^[\n\t ]*', '', '')
+
   " Check if it looks like armored age output
-  if body !~# '^-----BEGIN AGE ENCRYPTED FILE-----'
-    " Not encrypted yet, just mark for encryption on save
+  if trimmed_body !~# '^-----BEGIN AGE ENCRYPTED FILE-----'
+    " Not encrypted - but check for mixed content (corruption)
+    if body =~# '-----BEGIN AGE ENCRYPTED FILE-----'
+      " Mixed content: plaintext followed by encrypted block
+      echoerr 'md-age: WARNING: mixed plaintext and encrypted content detected'
+    endif
+    " Mark for encryption on save
     let b:md_age_encrypted = 1
     return
   endif
 
-  " Decrypt
-  let result = mdage#Decrypt(body, g:md_age_identity)
+  " Decrypt (use trimmed_body which has leading whitespace removed)
+  let result = mdage#Decrypt(trimmed_body, g:md_age_identity)
 
   if !result.success
     echoerr result.error

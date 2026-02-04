@@ -53,3 +53,33 @@ function! s:TestBuildRecipientArgsMultiple()
   call testify#assert#equals(args, '-r age1abc -R ~/.age/keys.txt')
 endfunction
 call testify#it('builds multiple recipient args', function('s:TestBuildRecipientArgsMultiple'))
+
+" Tests for flexible YAML parsing (issue: frontmatter parsing too strict)
+function! s:TestParseRecipientsNoIndent()
+  let lines = ['---', 'age-recipients:', '- git:assets/keys/editors', '- age1abc123', '---', 'body']
+  let result = mdage#ParseFrontmatter(lines)
+  let recipients = mdage#GetRecipients(result, lines)
+  call testify#assert#equals(len(recipients), 2)
+  call testify#assert#equals(recipients[0], 'git:assets/keys/editors')
+  call testify#assert#equals(recipients[1], 'age1abc123')
+endfunction
+call testify#it('parses recipients without leading indentation', function('s:TestParseRecipientsNoIndent'))
+
+function! s:TestParseRecipientsMixedIndent()
+  let lines = ['---', 'age-recipients:', '- first', '  - second', '---', 'body']
+  let result = mdage#ParseFrontmatter(lines)
+  let recipients = mdage#GetRecipients(result, lines)
+  call testify#assert#equals(len(recipients), 2)
+  call testify#assert#equals(recipients[0], 'first')
+  call testify#assert#equals(recipients[1], 'second')
+endfunction
+call testify#it('parses recipients with mixed indentation', function('s:TestParseRecipientsMixedIndent'))
+
+function! s:TestParseRecipientsNoSpaceAfterDash()
+  let lines = ['---', 'age-recipients:', '-git:keys/editors', '---', 'body']
+  let result = mdage#ParseFrontmatter(lines)
+  let recipients = mdage#GetRecipients(result, lines)
+  call testify#assert#equals(len(recipients), 1)
+  call testify#assert#equals(recipients[0], 'git:keys/editors')
+endfunction
+call testify#it('parses recipients without space after dash', function('s:TestParseRecipientsNoSpaceAfterDash'))
