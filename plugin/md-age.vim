@@ -15,6 +15,7 @@ endif
 " Commands
 command! MdAgeInit call mdage#Init()
 command! MdAgeStatus call mdage#Status()
+command! MdAgeToggle call mdage#ToggleEncryptOnSave()
 
 " Autocommands for transparent encryption
 augroup md_age

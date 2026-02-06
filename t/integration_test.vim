@@ -116,3 +116,56 @@ function! s:TestDetectsMixedContent()
   call delete(tmpfile)
 endfunction
 call testify#it('handles mixed content gracefully', function('s:TestDetectsMixedContent'))
+
+function! s:TestEncryptOnSaveDisabled()
+  call s:SetupTestKeys()
+
+  " Create test content
+  let frontmatter = ['---', 'age-encrypt: yes', 'age-recipients:', '  - ' . g:test_recipient, '---']
+  let body = ['# Secret Notes', '', 'This is confidential.']
+  let content = frontmatter + body
+
+  " Write to temp file
+  let tmpfile = tempname() . '.md'
+  call writefile(content, tmpfile)
+
+  " Open file
+  execute 'edit ' . tmpfile
+
+  " Disable encryption on save
+  let b:md_age_encrypt_on_save = 0
+
+  " Save file (should NOT encrypt because we disabled it)
+  write
+
+  " Check file on disk is NOT encrypted
+  let disk_content = join(readfile(tmpfile), "\n")
+  call testify#assert#equals(disk_content =~# 'BEGIN AGE ENCRYPTED FILE', 0)
+  call testify#assert#equals(disk_content =~# '# Secret Notes', 1)
+
+  " Re-enable and save again
+  let b:md_age_encrypt_on_save = 1
+  write
+
+  " Now it should be encrypted
+  let disk_content2 = join(readfile(tmpfile), "\n")
+  call testify#assert#equals(disk_content2 =~# 'BEGIN AGE ENCRYPTED FILE', 1)
+
+  bdelete!
+  call delete(tmpfile)
+endfunction
+call testify#it('respects b:md_age_encrypt_on_save', function('s:TestEncryptOnSaveDisabled'))
+
+function! s:TestToggleEncryptOnSave()
+  " Test the toggle function
+  unlet! b:md_age_encrypt_on_save
+
+  " Default should be 1, toggle to 0
+  call mdage#ToggleEncryptOnSave()
+  call testify#assert#equals(b:md_age_encrypt_on_save, 0)
+
+  " Toggle back to 1
+  call mdage#ToggleEncryptOnSave()
+  call testify#assert#equals(b:md_age_encrypt_on_save, 1)
+endfunction
+call testify#it('toggles b:md_age_encrypt_on_save', function('s:TestToggleEncryptOnSave'))

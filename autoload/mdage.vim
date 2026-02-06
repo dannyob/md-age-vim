@@ -258,6 +258,7 @@ function! mdage#OnBufRead() abort
   if body_start >= len(lines)
     " Empty body, nothing to decrypt
     let b:md_age_encrypted = 1
+    let b:md_age_encrypt_on_save = 1
     return
   endif
 
@@ -278,6 +279,7 @@ function! mdage#OnBufRead() abort
     endif
     " Mark for encryption on save
     let b:md_age_encrypted = 1
+    let b:md_age_encrypt_on_save = 1
     return
   endif
 
@@ -302,10 +304,17 @@ function! mdage#OnBufRead() abort
   setlocal nomodified
 
   let b:md_age_encrypted = 1
+  let b:md_age_encrypt_on_save = 1
 endfunction
 
 " Called on BufWritePre - encrypt if needed
 function! mdage#OnBufWritePre() abort
+  " Check if encryption is disabled for this buffer
+  " b:md_age_encrypt_on_save defaults to 1, set to 0 to skip encryption
+  if !get(b:, 'md_age_encrypt_on_save', 1)
+    return
+  endif
+
   if !get(b:, 'md_age_encrypted', 0)
     let lines = getline(1, '$')
     let parsed = mdage#ParseFrontmatter(lines)
@@ -410,6 +419,16 @@ function! mdage#Init() abort
   endif
 endfunction
 
+" Toggle encryption on save for this buffer
+function! mdage#ToggleEncryptOnSave() abort
+  let b:md_age_encrypt_on_save = !get(b:, 'md_age_encrypt_on_save', 1)
+  if b:md_age_encrypt_on_save
+    echo 'md-age: encryption on save ENABLED'
+  else
+    echo 'md-age: encryption on save DISABLED'
+  endif
+endfunction
+
 " Show current encryption status
 function! mdage#Status() abort
   let lines = getline(1, '$')
@@ -421,7 +440,12 @@ function! mdage#Status() abort
   endif
 
   if get(b:, 'md_age_encrypted', 0)
-    echo 'md-age: decrypted (will encrypt on save)'
+    let encrypt_on_save = get(b:, 'md_age_encrypt_on_save', 1)
+    if encrypt_on_save
+      echo 'md-age: decrypted (will encrypt on save)'
+    else
+      echo 'md-age: decrypted (encryption DISABLED for this save)'
+    endif
     let recipients = mdage#GetRecipients(parsed, lines)
     echo 'md-age: recipients: ' . string(recipients)
   else
