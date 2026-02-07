@@ -97,8 +97,11 @@ compute_cache_key() {
 
 # Get cache directory (creates if needed)
 get_cache_dir() {
+    # Use --git-common-dir so worktrees share the cache with the main repo.
+    # This prevents age's non-deterministic encryption from making every
+    # encrypted file appear modified in new worktrees.
     local git_dir
-    git_dir=$(git rev-parse --git-dir 2>/dev/null) || return 1
+    git_dir=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
     local cache_dir="$git_dir/md-age/hashes"
     mkdir -p "$cache_dir"
     echo "$cache_dir"
@@ -470,9 +473,11 @@ EOF
         exit 0
     fi
 
-    # Read all stdin
+    # Read all stdin, preserving trailing newlines
+    # (bash command substitution strips trailing newlines)
     local content
-    content=$(cat)
+    content=$(cat; printf x)
+    content="${content%x}"
 
     # Parse frontmatter
     if ! parse_frontmatter "$content"; then
@@ -595,8 +600,10 @@ EOF
     fi
 
     # Always read from stdin (git filter provides content via stdin)
+    # Preserve trailing newlines (bash command substitution strips them)
     local content
-    content=$(cat)
+    content=$(cat; printf x)
+    content="${content%x}"
 
     # Parse frontmatter
     if ! parse_frontmatter "$content"; then
@@ -866,12 +873,14 @@ shift $((OPTIND - 1))
 
 input="${1:--}"
 
-# Read input
+# Read input, preserving trailing newlines
 if [[ "$input" == "-" ]]; then
-    content=$(cat)
+    content=$(cat; printf x)
+    content="${content%x}"
 else
     [[ -f "$input" ]] || die "file not found: $input"
-    content=$(cat "$input")
+    content=$(cat "$input"; printf x)
+    content="${content%x}"
 fi
 
 # Parse frontmatter (sets FRONTMATTER and BODY globals)

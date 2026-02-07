@@ -609,6 +609,63 @@ Content version 2"
     [[ "$output1" != "$output2" ]] || return 1
 }
 
+test_git_clean_preserves_trailing_newlines() {
+    # Regression: bash $(cat) strips trailing newlines, making every .md file
+    # appear modified in git worktrees. Compare via files to avoid the same
+    # issue in the test harness itself.
+    printf '# Just a readme\n\nSome content here.\n\n' > "$TMPDIR/trail_input.md"
+
+    "$MD_AGE" git clean test.md < "$TMPDIR/trail_input.md" > "$TMPDIR/trail_output.md"
+
+    # Output must be byte-identical to input
+    local input_hash output_hash
+    input_hash=$(shasum -a 256 < "$TMPDIR/trail_input.md" | cut -d' ' -f1)
+    output_hash=$(shasum -a 256 < "$TMPDIR/trail_output.md" | cut -d' ' -f1)
+
+    [[ "$input_hash" == "$output_hash" ]] || {
+        echo "trailing newlines were stripped" >&2
+        return 1
+    }
+}
+
+test_git_smudge_preserves_trailing_newlines() {
+    # Regression: same $(cat) issue in smudge filter
+    printf '# Just a readme\n\nSome content here.\n\n' > "$TMPDIR/trail_input2.md"
+
+    "$MD_AGE" git smudge test.md < "$TMPDIR/trail_input2.md" > "$TMPDIR/trail_output2.md"
+
+    local input_hash output_hash
+    input_hash=$(shasum -a 256 < "$TMPDIR/trail_input2.md" | cut -d' ' -f1)
+    output_hash=$(shasum -a 256 < "$TMPDIR/trail_output2.md" | cut -d' ' -f1)
+
+    [[ "$input_hash" == "$output_hash" ]] || {
+        echo "trailing newlines were stripped" >&2
+        return 1
+    }
+}
+
+test_git_clean_worktree_shares_cache() {
+    # Regression: worktrees had separate caches, causing encrypted files
+    # to always appear modified due to non-deterministic age encryption
+    local repo="$TMPDIR/worktree-cache-repo"
+    git init -q "$repo"
+
+    local cache_dir
+    cache_dir=$(cd "$repo" && "$MD_AGE" git clean test.md </dev/null 2>/dev/null; git rev-parse --git-common-dir)/md-age/hashes
+
+    # get_cache_dir should use --git-common-dir, not --git-dir
+    local script_cache
+    script_cache=$(cd "$repo" && git rev-parse --git-common-dir)/md-age/hashes
+
+    [[ "$cache_dir" == "$script_cache" ]] || return 1
+
+    # Verify --git-common-dir and --git-dir are same for non-worktree
+    local common_dir git_dir
+    common_dir=$(cd "$repo" && git rev-parse --git-common-dir)
+    git_dir=$(cd "$repo" && git rev-parse --git-dir)
+    [[ "$common_dir" == "$git_dir" ]] || return 1
+}
+
 test_git_integration_workflow() {
     local repo="$TMPDIR/integration-repo"
     git init -q "$repo"
@@ -715,6 +772,9 @@ main() {
     run_test "git smudge decrypts with identity" test_git_smudge_decrypts
     run_test "git clean is deterministic with caching" test_git_clean_deterministic
     run_test "git clean cache invalidates on content change" test_git_clean_cache_invalidates_on_change
+    run_test "git clean preserves trailing newlines" test_git_clean_preserves_trailing_newlines
+    run_test "git smudge preserves trailing newlines" test_git_smudge_preserves_trailing_newlines
+    run_test "git clean cache uses git-common-dir for worktrees" test_git_clean_worktree_shares_cache
     run_test "git integration: add/commit/checkout workflow" test_git_integration_workflow
 
     if [[ -n "${TAP:-}" ]]; then
