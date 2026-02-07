@@ -332,6 +332,13 @@ EOF
     echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
 }
 
+test_no_bash4_parameter_expansion() {
+    # Regression: ${var,,} and ${var^^} require bash 4+ and fail on macOS bash 3.2
+    # with "bad substitution". Ensure the script uses portable lowercase conversion.
+    # Exclude comments (lines starting with optional whitespace then #).
+    ! grep -v '^\s*#' "$MD_AGE" | grep -qE '\$\{[a-zA-Z_][a-zA-Z_0-9]*,,\}|\$\{[a-zA-Z_][a-zA-Z_0-9]*\^\^\}'
+}
+
 test_age_encrypt_unrecognized_warns() {
     cat > "$TMPDIR/input.md" << EOF
 ---
@@ -687,6 +694,7 @@ main() {
     run_test "age-encrypt: true" test_age_encrypt_true
     run_test "age-encrypt: on" test_age_encrypt_on
     run_test "age-encrypt case insensitive" test_age_encrypt_case_insensitive
+    run_test "no bash 4+ parameter expansion" test_no_bash4_parameter_expansion
     run_test "age-encrypt unrecognized value warns" test_age_encrypt_unrecognized_warns
     run_test "explicit -r overrides frontmatter recipients" test_explicit_recipient_overrides_frontmatter
     run_test "handles multiline body" test_multiline_body

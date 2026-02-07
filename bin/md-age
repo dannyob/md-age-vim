@@ -678,8 +678,8 @@ normalize_yaml_value() {
     if [[ "$v" =~ ^\'(.*)\'$ ]] || [[ "$v" =~ ^\"(.*)\"$ ]]; then
         v="${BASH_REMATCH[1]}"
     fi
-    # Lowercase
-    echo "${v,,}"
+    # Lowercase (portable, no bash 4+ ${v,,})
+    printf '%s' "$v" | tr '[:upper:]' '[:lower:]'
 }
 
 # Validate age-encrypt value and warn if unrecognized
