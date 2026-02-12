@@ -60,11 +60,11 @@ Optional - set default recipients for `:MdAgeInit`:
 
 ```vim
 " Single recipient
-let g:md_age_default_recipients = 'age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p'
+let g:md_age_default_recipients = 'age1example7xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 
 " Multiple recipients
 let g:md_age_default_recipients = [
-  \ 'age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p',
+  \ 'age1example7xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
   \ '~/.age/backup.pub'
   \ ]
 ```
@@ -78,7 +78,7 @@ Add frontmatter to your markdown file:
 title: My Secret Notes
 age-encrypt: yes
 age-recipients:
-  - age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+  - age1example7xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ---
 ```
 
@@ -144,6 +144,7 @@ md-age git init                    # Set up filters in current repo
 md-age git config add -i <path>    # Add identity for decryption
 md-age git config list             # Show configured identities
 md-age git config remove -i <path> # Remove identity
+md-age git rekey [files...]        # Re-encrypt after changing recipients
 ```
 
 ### Fresh Clone
@@ -154,6 +155,80 @@ After cloning a repo with md-age files:
 cd repo
 md-age git config add -i ~/.age/key.txt
 git checkout .  # Re-checkout to trigger decryption
+```
+
+## Directory Encryption
+
+Encrypt entire directories of arbitrary files (configs, keys, assets).
+Each file is individually encrypted in a frontmatter envelope. The working
+tree has raw plaintext files; git stores encrypted blobs.
+
+### Setup
+
+1. Set up filters and add your identity (if not already done):
+
+```bash
+md-age git init
+md-age git config add -i ~/.age/key.txt
+```
+
+2. Create a `.age-recipients` file (usually at the repo root):
+
+```bash
+cat > .age-recipients << 'EOF'
+age1example7xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+EOF
+```
+
+3. Mark directories for encryption:
+
+```bash
+md-age git add-dir secrets/
+md-age git add-dir credentials/
+```
+
+This creates a `.age-encrypt` marker and configures `.gitattributes`.
+
+4. Use normally:
+
+```bash
+echo '{"api_key": "abc123"}' > secrets/config.json
+git add .age-recipients .gitattributes secrets/
+git commit -m "Add encrypted secrets"
+```
+
+### How It Works
+
+- **`.age-encrypt`** — empty marker file; its presence in a directory
+  triggers encryption for all files in that directory
+- **`.age-recipients`** — lists recipients (one per line, comments with `#`).
+  The clean filter walks up from the file's directory to the git root,
+  using the nearest `.age-recipients` it finds. One file at the repo root
+  covers all encrypted directories; place one in a subdirectory to override.
+- **On commit:** `dir-clean` encrypts each file into a frontmatter envelope
+- **On checkout:** `dir-smudge` strips the envelope, restoring raw content
+- Binary files, text files, any content — all handled transparently
+
+### Recipient Override
+
+```
+repo/
+├── .age-recipients          ← default for everything
+├── secrets/
+│   ├── .age-encrypt
+│   └── config.json
+├── credentials/
+│   ├── .age-encrypt
+│   ├── .age-recipients      ← different recipients for this dir
+│   └── prod.env
+```
+
+### Rekey
+
+After changing `.age-recipients`, re-encrypt files with the new recipients:
+
+```bash
+md-age git rekey secrets/
 ```
 
 ## License

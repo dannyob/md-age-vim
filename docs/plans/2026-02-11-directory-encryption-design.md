@@ -61,7 +61,7 @@ A file containing one recipient per line, same format as frontmatter `age-recipi
 
 ```
 # .age-recipients (at repo root, or any ancestor directory)
-age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+age1example7xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...
 git:assets/keys/editors
 ```
@@ -182,7 +182,7 @@ md-age git config add -i ~/.age/key.txt  # add decryption identity
 
 # Add recipients (once, at repo root)
 cat > .age-recipients << 'EOF'
-age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+age1example7xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 EOF
 git add .age-recipients
 

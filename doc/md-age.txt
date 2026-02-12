@@ -73,8 +73,12 @@ Git subcommands:~
     md-age git config add -i     Add identity for decryption
     md-age git config list       Show configured identities
     md-age git config remove -i  Remove identity
-    md-age git clean             Encrypt filter (called by git)
-    md-age git smudge            Decrypt filter (called by git)
+    md-age git add-dir <path>    Set up a directory for encryption
+    md-age git rekey [files...]  Re-encrypt files with current recipients
+    md-age git clean             Encrypt filter for markdown (called by git)
+    md-age git smudge            Decrypt filter for markdown (called by git)
+    md-age git dir-clean         Encrypt filter for directories (called by git)
+    md-age git dir-smudge        Decrypt filter for directories (called by git)
 
 Files with `age-encrypt: yes` in frontmatter are encrypted on commit and
 decrypted on checkout. Other markdown files pass through unchanged.
@@ -87,6 +91,48 @@ Use cmd: prefix to fetch identity from a command: >
 <
 This runs the command and uses its output as the identity, useful for
 password managers like pass or 1password-cli.
+
+DIRECTORY ENCRYPTION                            *md-age-dir*
+
+Encrypt entire directories of arbitrary files. Each file is individually
+encrypted in a frontmatter envelope. The working tree has raw plaintext;
+git stores encrypted blobs.
+
+                                                *md-age-dir-setup*
+Setup: >
+    md-age git init
+    md-age git config add -i ~/.age/key.txt
+    echo 'age1...' > .age-recipients
+    md-age git add-dir secrets/
+<
+                                                *md-age-dir-age-encrypt*
+.age-encrypt~
+    Empty marker file. Its presence in a directory triggers encryption
+    for all files in that directory. Created by `md-age git add-dir`.
+
+                                                *md-age-dir-age-recipients*
+.age-recipients~
+    Lists recipients, one per line. Comments start with `#`.
+    The clean filter searches from the file's directory up to the git
+    root, using the nearest `.age-recipients` found. >
+
+        # .age-recipients
+        age1example7xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        ssh-ed25519 AAAA...
+        git:path/to/recipients-file
+<
+    Place at the repo root for all directories, or in a subdirectory
+    to override recipients for that directory.
+
+                                                *md-age-dir-add-dir*
+md-age git add-dir <path>~
+    Set up a directory for encryption. Creates `.age-encrypt` marker
+    and appends filter rules to `.gitattributes`. Idempotent.
+
+                                                *md-age-dir-rekey*
+md-age git rekey [path...]~
+    Re-encrypt files with current recipients from `.age-recipients`.
+    Use after adding or removing recipients.
 
 KNOWN LIMITATIONS                               *md-age-limitations*
 
