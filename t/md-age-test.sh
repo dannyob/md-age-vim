@@ -726,6 +726,388 @@ EOF
     return 0
 }
 
+# --- Directory encryption tests ---
+
+test_git_dir_clean_encrypts() {
+    local repo="$TMPDIR/dir-clean-repo"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+
+    local output
+    output=$(cd "$repo" && echo '{"key": "value"}' | "$MD_AGE" git dir-clean secrets/config.json)
+
+    # Should have frontmatter envelope
+    echo "$output" | grep -q "^---$" || return 1
+    echo "$output" | grep -q "^age-encrypt: yes$" || return 1
+    echo "$output" | grep -q "$RECIPIENT" || return 1
+    # Should have encrypted body
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE" || return 1
+    # Should NOT have plaintext
+    ! echo "$output" | grep -q '"key"' || return 1
+}
+
+test_git_dir_clean_walks_up() {
+    # .age-recipients at repo root, file in subdirectory
+    local repo="$TMPDIR/dir-clean-walkup"
+    mkdir -p "$repo/secrets/nested"
+    git init -q "$repo"
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+
+    local output
+    output=$(cd "$repo" && echo "nested data" | "$MD_AGE" git dir-clean secrets/nested/file.txt)
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
+}
+
+test_git_dir_clean_nearest_recipients_wins() {
+    local repo="$TMPDIR/dir-clean-nearest"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+
+    # Create second key for override
+    local key2="$TMPDIR/dir-clean-key2.txt"
+    age-keygen -o "$key2" 2>&1 | grep 'Public key:' | sed 's/Public key: //' > "$TMPDIR/dir-clean-recip2.txt"
+    local recipient2
+    recipient2=$(cat "$TMPDIR/dir-clean-recip2.txt")
+
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+    echo "$recipient2" > "$repo/secrets/.age-recipients"
+
+    local output
+    output=$(cd "$repo" && echo "secret data" | "$MD_AGE" git dir-clean secrets/file.txt)
+
+    # Envelope should have the override recipient, not root
+    echo "$output" | grep -q "$recipient2" || return 1
+    ! echo "$output" | grep -q "$RECIPIENT" || return 1
+}
+
+test_git_dir_clean_fails_no_recipients_file() {
+    local repo="$TMPDIR/dir-clean-no-recip"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+    # No .age-recipients anywhere
+
+    if echo "data" | (cd "$repo" && "$MD_AGE" git dir-clean secrets/file.txt) 2>/dev/null; then
+        return 1  # Should have failed
+    fi
+    return 0
+}
+
+test_git_dir_clean_stops_at_git_root() {
+    # .age-recipients above git root should not be found
+    local dir="$TMPDIR/dir-clean-root"
+    mkdir -p "$dir/repo/secrets"
+    echo "$RECIPIENT" > "$dir/.age-recipients"
+    git init -q "$dir/repo"
+
+    if echo "data" | (cd "$dir/repo" && "$MD_AGE" git dir-clean secrets/file.txt) 2>/dev/null; then
+        return 1  # Should have failed
+    fi
+    return 0
+}
+
+test_git_dir_clean_strips_comments() {
+    local repo="$TMPDIR/dir-clean-comments"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+
+    cat > "$repo/.age-recipients" << EOF
+# This is a comment
+$RECIPIENT
+
+# Another comment
+EOF
+
+    local output
+    output=$(cd "$repo" && echo "data" | "$MD_AGE" git dir-clean secrets/file.txt)
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE" || return 1
+    # Comments should not appear in envelope
+    ! echo "$output" | grep -q "# This is a comment" || return 1
+}
+
+test_git_dir_clean_deterministic() {
+    local repo="$TMPDIR/dir-clean-cache"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+
+    local input="some file content"
+    local output1 output2
+    output1=$(cd "$repo" && echo "$input" | "$MD_AGE" git dir-clean secrets/file.txt)
+    output2=$(cd "$repo" && echo "$input" | "$MD_AGE" git dir-clean secrets/file.txt)
+
+    [[ "$output1" == "$output2" ]] || return 1
+}
+
+test_git_dir_clean_envelope_compat() {
+    # Envelope should be decryptable by md-age -d
+    local repo="$TMPDIR/dir-clean-compat"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+
+    local encrypted
+    encrypted=$(cd "$repo" && echo "compatibility test" | "$MD_AGE" git dir-clean secrets/file.txt)
+
+    local decrypted
+    decrypted=$(echo "$encrypted" | "$MD_AGE" -d -i "$TESTKEY")
+    echo "$decrypted" | grep -q "compatibility test"
+}
+
+test_git_dir_smudge_decrypts() {
+    local repo="$TMPDIR/dir-smudge-repo"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+    (cd "$repo" && "$MD_AGE" git config add -i "$TESTKEY") >/dev/null
+
+    # Encrypt via dir-clean first
+    local encrypted
+    encrypted=$(cd "$repo" && echo "secret payload" | "$MD_AGE" git dir-clean secrets/data.bin)
+
+    # Decrypt via dir-smudge
+    local decrypted
+    decrypted=$(cd "$repo" && echo "$encrypted" | "$MD_AGE" git dir-smudge secrets/data.bin)
+
+    [[ "$decrypted" == "secret payload" ]]
+}
+
+test_git_dir_smudge_strips_envelope() {
+    local repo="$TMPDIR/dir-smudge-strip"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+    (cd "$repo" && "$MD_AGE" git config add -i "$TESTKEY") >/dev/null
+
+    local encrypted
+    encrypted=$(cd "$repo" && echo "raw data" | "$MD_AGE" git dir-clean secrets/file.txt)
+
+    local decrypted
+    decrypted=$(cd "$repo" && echo "$encrypted" | "$MD_AGE" git dir-smudge secrets/file.txt)
+
+    # Must NOT contain frontmatter markers
+    ! echo "$decrypted" | grep -q "^---$" || return 1
+    ! echo "$decrypted" | grep -q "age-encrypt" || return 1
+    echo "$decrypted" | grep -q "raw data"
+}
+
+test_git_dir_smudge_passthrough_no_identity() {
+    local repo="$TMPDIR/dir-smudge-noid"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+    # No identity configured
+
+    local encrypted
+    encrypted=$(cd "$repo" && echo "data" | "$MD_AGE" git dir-clean secrets/file.txt)
+
+    # Should pass through unchanged (no identity to decrypt)
+    local output
+    output=$(cd "$repo" && echo "$encrypted" | "$MD_AGE" git dir-smudge secrets/file.txt)
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE"
+}
+
+test_git_dir_smudge_passthrough_no_envelope() {
+    local repo="$TMPDIR/dir-smudge-plain"
+    git init -q "$repo"
+
+    # Raw content without envelope should pass through
+    local output
+    output=$(cd "$repo" && echo "just plain text" | "$MD_AGE" git dir-smudge somefile.txt)
+    [[ "$output" == "just plain text" ]]
+}
+
+test_git_add_dir_creates_marker() {
+    local repo="$TMPDIR/add-dir-repo"
+    git init -q "$repo"
+    mkdir -p "$repo/secrets"
+
+    (cd "$repo" && "$MD_AGE" git add-dir secrets) >/dev/null || return 1
+
+    [[ -f "$repo/secrets/.age-encrypt" ]]
+}
+
+test_git_add_dir_updates_gitattributes() {
+    local repo="$TMPDIR/add-dir-attr"
+    git init -q "$repo"
+    mkdir -p "$repo/secrets"
+
+    (cd "$repo" && "$MD_AGE" git add-dir secrets) >/dev/null || return 1
+
+    grep -q 'secrets/\*\* filter=md-age-dir diff=md-age-dir' "$repo/.gitattributes" || return 1
+    grep -q 'secrets/.age-encrypt !filter !diff' "$repo/.gitattributes" || return 1
+}
+
+test_git_add_dir_idempotent() {
+    local repo="$TMPDIR/add-dir-idem"
+    git init -q "$repo"
+    mkdir -p "$repo/secrets"
+
+    (cd "$repo" && "$MD_AGE" git add-dir secrets) >/dev/null || return 1
+    (cd "$repo" && "$MD_AGE" git add-dir secrets) >/dev/null || return 1
+
+    # Should only have one entry, not duplicates
+    local count
+    count=$(grep -c 'secrets/\*\* filter=md-age-dir' "$repo/.gitattributes")
+    [[ "$count" -eq 1 ]]
+}
+
+test_git_add_dir_multiple_dirs() {
+    local repo="$TMPDIR/add-dir-multi"
+    git init -q "$repo"
+    mkdir -p "$repo/secrets" "$repo/credentials"
+
+    (cd "$repo" && "$MD_AGE" git add-dir secrets) >/dev/null || return 1
+    (cd "$repo" && "$MD_AGE" git add-dir credentials) >/dev/null || return 1
+
+    grep -q 'secrets/\*\* filter=md-age-dir' "$repo/.gitattributes" || return 1
+    grep -q 'credentials/\*\* filter=md-age-dir' "$repo/.gitattributes" || return 1
+    [[ -f "$repo/secrets/.age-encrypt" ]] || return 1
+    [[ -f "$repo/credentials/.age-encrypt" ]]
+}
+
+test_git_add_dir_creates_dir_if_missing() {
+    local repo="$TMPDIR/add-dir-mkdir"
+    git init -q "$repo"
+
+    (cd "$repo" && "$MD_AGE" git add-dir newdir) >/dev/null || return 1
+
+    [[ -d "$repo/newdir" ]] || return 1
+    [[ -f "$repo/newdir/.age-encrypt" ]]
+}
+
+test_git_add_dir_excludes_local_recipients() {
+    local repo="$TMPDIR/add-dir-local-recip"
+    git init -q "$repo"
+    mkdir -p "$repo/secrets"
+    echo "$RECIPIENT" > "$repo/secrets/.age-recipients"
+
+    (cd "$repo" && "$MD_AGE" git add-dir secrets) >/dev/null || return 1
+
+    grep -q 'secrets/.age-recipients !filter !diff' "$repo/.gitattributes"
+}
+
+test_git_init_registers_dir_filter() {
+    local repo="$TMPDIR/init-dir-filter"
+    git init -q "$repo"
+
+    (cd "$repo" && "$MD_AGE" git init) >/dev/null || return 1
+
+    (cd "$repo" && git config --get filter.md-age-dir.clean) | grep -q "dir-clean" || return 1
+    (cd "$repo" && git config --get filter.md-age-dir.smudge) | grep -q "dir-smudge" || return 1
+    (cd "$repo" && git config --get filter.md-age-dir.required) | grep -q "true" || return 1
+    (cd "$repo" && git config --get diff.md-age-dir.textconv) | grep -q "dir-smudge" || return 1
+}
+
+test_git_dir_integration_workflow() {
+    local repo="$TMPDIR/dir-integration-repo"
+    git init -q "$repo"
+    cd "$repo"
+
+    export PATH="$PROJECT_DIR/bin:$PATH"
+
+    # Setup
+    "$MD_AGE" git init >/dev/null
+    "$MD_AGE" git config add -i "$TESTKEY" >/dev/null
+    echo "$RECIPIENT" > .age-recipients
+    "$MD_AGE" git add-dir secrets >/dev/null
+
+    git add .age-recipients .gitattributes secrets/.age-encrypt
+    git commit -q -m "Initial setup"
+
+    # Create files in encrypted directory
+    echo '{"api_key": "abc123"}' > secrets/config.json
+    echo "password=hunter2" > secrets/creds.txt
+
+    git add secrets/
+    git commit -q -m "Add secrets"
+
+    # Verify committed content is encrypted
+    local stored
+    stored=$(git show HEAD:secrets/config.json)
+    if echo "$stored" | grep -q "abc123"; then
+        echo "FAIL: plaintext found in git (config.json)" >&2
+        return 1
+    fi
+    if ! echo "$stored" | grep -q "BEGIN AGE ENCRYPTED FILE"; then
+        echo "FAIL: no encrypted content in git (config.json)" >&2
+        return 1
+    fi
+
+    stored=$(git show HEAD:secrets/creds.txt)
+    if echo "$stored" | grep -q "hunter2"; then
+        echo "FAIL: plaintext found in git (creds.txt)" >&2
+        return 1
+    fi
+
+    # Verify working copy is decrypted
+    grep -q "abc123" secrets/config.json || {
+        echo "FAIL: working copy not decrypted (config.json)" >&2
+        return 1
+    }
+    grep -q "hunter2" secrets/creds.txt || {
+        echo "FAIL: working copy not decrypted (creds.txt)" >&2
+        return 1
+    }
+
+    # Verify checkout re-decrypts
+    git checkout -- secrets/
+    grep -q "abc123" secrets/config.json || {
+        echo "FAIL: checkout did not decrypt (config.json)" >&2
+        return 1
+    }
+
+    # Verify .age-encrypt is not encrypted
+    stored=$(git show HEAD:secrets/.age-encrypt)
+    ! echo "$stored" | grep -q "BEGIN AGE ENCRYPTED FILE" || {
+        echo "FAIL: .age-encrypt was encrypted" >&2
+        return 1
+    }
+
+    return 0
+}
+
+test_git_dir_binary_roundtrip() {
+    local repo="$TMPDIR/dir-binary-repo"
+    git init -q "$repo"
+    cd "$repo"
+
+    export PATH="$PROJECT_DIR/bin:$PATH"
+
+    "$MD_AGE" git init >/dev/null
+    "$MD_AGE" git config add -i "$TESTKEY" >/dev/null
+    echo "$RECIPIENT" > .age-recipients
+    "$MD_AGE" git add-dir assets >/dev/null
+    git add .age-recipients .gitattributes assets/.age-encrypt
+    git commit -q -m "Setup"
+
+    # Create a binary file (random bytes)
+    dd if=/dev/urandom of=assets/random.bin bs=256 count=1 2>/dev/null
+    local orig_hash
+    orig_hash=$(shasum -a 256 < assets/random.bin | cut -d' ' -f1)
+
+    git add assets/random.bin
+    git commit -q -m "Add binary"
+
+    # Verify git stores encrypted
+    local stored
+    stored=$(git show HEAD:assets/random.bin)
+    echo "$stored" | grep -q "BEGIN AGE ENCRYPTED FILE" || {
+        echo "FAIL: binary not encrypted in git" >&2
+        return 1
+    }
+
+    # Verify checkout restores exact bytes
+    git checkout -- assets/random.bin
+    local restored_hash
+    restored_hash=$(shasum -a 256 < assets/random.bin | cut -d' ' -f1)
+
+    [[ "$orig_hash" == "$restored_hash" ]] || {
+        echo "FAIL: binary roundtrip mismatch" >&2
+        return 1
+    }
+}
+
 # --- Main ---
 
 main() {
@@ -776,6 +1158,29 @@ main() {
     run_test "git smudge preserves trailing newlines" test_git_smudge_preserves_trailing_newlines
     run_test "git clean cache uses git-common-dir for worktrees" test_git_clean_worktree_shares_cache
     run_test "git integration: add/commit/checkout workflow" test_git_integration_workflow
+
+    # Directory encryption tests
+    run_test "dir-clean encrypts with envelope" test_git_dir_clean_encrypts
+    run_test "dir-clean walks up for .age-recipients" test_git_dir_clean_walks_up
+    run_test "dir-clean nearest .age-recipients wins" test_git_dir_clean_nearest_recipients_wins
+    run_test "dir-clean fails without .age-recipients" test_git_dir_clean_fails_no_recipients_file
+    run_test "dir-clean stops at git root" test_git_dir_clean_stops_at_git_root
+    run_test "dir-clean strips comments from .age-recipients" test_git_dir_clean_strips_comments
+    run_test "dir-clean is deterministic with caching" test_git_dir_clean_deterministic
+    run_test "dir-clean envelope compatible with md-age -d" test_git_dir_clean_envelope_compat
+    run_test "dir-smudge decrypts to raw content" test_git_dir_smudge_decrypts
+    run_test "dir-smudge strips envelope" test_git_dir_smudge_strips_envelope
+    run_test "dir-smudge passes through without identity" test_git_dir_smudge_passthrough_no_identity
+    run_test "dir-smudge passes through non-envelope" test_git_dir_smudge_passthrough_no_envelope
+    run_test "add-dir creates .age-encrypt marker" test_git_add_dir_creates_marker
+    run_test "add-dir updates .gitattributes" test_git_add_dir_updates_gitattributes
+    run_test "add-dir is idempotent" test_git_add_dir_idempotent
+    run_test "add-dir handles multiple directories" test_git_add_dir_multiple_dirs
+    run_test "add-dir creates directory if missing" test_git_add_dir_creates_dir_if_missing
+    run_test "add-dir excludes local .age-recipients" test_git_add_dir_excludes_local_recipients
+    run_test "git init registers md-age-dir filter" test_git_init_registers_dir_filter
+    run_test "dir integration: add/commit/checkout workflow" test_git_dir_integration_workflow
+    run_test "dir integration: binary file roundtrip" test_git_dir_binary_roundtrip
 
     if [[ -n "${TAP:-}" ]]; then
         echo "1..$TESTS_RUN"

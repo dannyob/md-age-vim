@@ -72,9 +72,12 @@ Usage: md-age git <command> [options]
 git subcommands for transparent encryption:
   init              Set up filters in current repo
   config            Manage identity configuration
+  add-dir <path>    Set up a directory for encryption
   rekey [files...]  Re-encrypt files (use after adding recipients)
-  clean             Encrypt filter (for git)
-  smudge            Decrypt filter (for git)
+  clean             Encrypt filter for md-age markdown (for git)
+  smudge            Decrypt filter for md-age markdown (for git)
+  dir-clean         Encrypt filter for directory mode (for git)
+  dir-smudge        Decrypt filter for directory mode (for git)
 
 Run 'md-age git <command> --help' for command-specific help.
 EOF
@@ -170,7 +173,15 @@ EOF
     # Set up diff (textconv receives filename as $1, not via %f)
     git config diff.md-age.textconv "sh -c 'cat \"\$1\" | $cmd_prefix git smudge \"\$1\"' --"
 
-    echo "md-age: filter configured in .git/config"
+    # Set up directory encryption filter
+    git config filter.md-age-dir.clean "$cmd_prefix git dir-clean %f"
+    git config filter.md-age-dir.smudge "$cmd_prefix git dir-smudge %f"
+    git config filter.md-age-dir.required true
+
+    # Set up diff for directory encryption
+    git config diff.md-age-dir.textconv "sh -c 'cat \"\$1\" | $cmd_prefix git dir-smudge \"\$1\"' --"
+
+    echo "md-age: filters configured in .git/config"
     echo "  md-age: $md_age_path"
     echo "  age:    $age_path"
 
@@ -835,15 +846,290 @@ build_recipient_args() {
     echo "$args"
 }
 
+# Find .age-recipients file by walking up from a file's directory to git root
+# Args: filename (relative to repo root, as passed by git %f)
+# Prints the path to the .age-recipients file, or returns 1 if not found
+find_age_recipients() {
+    local filename="$1"
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+        echo "md-age: not in a git repository" >&2
+        return 1
+    }
+
+    local dir="$repo_root/$(dirname "$filename")"
+
+    while true; do
+        if [[ -f "$dir/.age-recipients" ]]; then
+            echo "$dir/.age-recipients"
+            return 0
+        fi
+        # Stop at git root
+        if [[ "$dir" == "$repo_root" ]]; then
+            break
+        fi
+        dir=$(dirname "$dir")
+        # Safety: don't walk above repo root
+        if [[ ! "$dir" == "$repo_root"* ]]; then
+            break
+        fi
+    done
+
+    return 1
+}
+
+# Read recipients from a .age-recipients file
+# Strips comments (# lines), blank lines, leading/trailing whitespace
+# Args: filepath
+# Outputs one recipient per line
+read_age_recipients() {
+    local filepath="$1"
+    [[ -f "$filepath" ]] || {
+        echo "md-age: .age-recipients not found: $filepath" >&2
+        return 1
+    }
+    sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$filepath" \
+        | grep -v '^#' \
+        | grep -v '^$'
+}
+
+git_dir_clean() {
+    local filename="${1:-}"
+
+    if [[ "$filename" == "-h" ]] || [[ "$filename" == "--help" ]]; then
+        cat <<'EOF'
+Usage: md-age git dir-clean <filename>
+
+Git clean filter for directory encryption - encrypts files on stage.
+Reads from stdin, writes to stdout.
+Recipients are read from .age-recipients (walks up to git root).
+EOF
+        exit 0
+    fi
+
+    # Read all stdin, preserving trailing newlines
+    local content
+    content=$(cat; printf x)
+    content="${content%x}"
+
+    # Find .age-recipients
+    local recipients_file
+    recipients_file=$(find_age_recipients "$filename") || {
+        echo "md-age: dir-clean: no .age-recipients found for $filename" >&2
+        exit 1
+    }
+
+    # Read recipients
+    local recipients
+    recipients=$(read_age_recipients "$recipients_file") || exit 1
+
+    if [[ -z "$recipients" ]]; then
+        echo "md-age: dir-clean: .age-recipients is empty: $recipients_file" >&2
+        exit 1
+    fi
+
+    # Build recipient args
+    local age_args
+    local file_dir
+    file_dir=$(dirname "$recipients_file")
+    age_args=$(build_recipient_args "$recipients" "$file_dir")
+
+    # Compute cache key using resolved recipients
+    local cache_key
+    cache_key=$(compute_cache_key "$age_args" "$content")
+
+    # Check cache
+    local encrypted
+    if encrypted=$(get_cached "$cache_key" 2>/dev/null); then
+        # Cache hit — build envelope with cached ciphertext
+        printf '%s' "---
+age-encrypt: yes
+age-recipients:
+"
+        while IFS= read -r r; do
+            [[ -z "$r" ]] && continue
+            printf '  - %s\n' "$r"
+        done <<< "$recipients"
+        printf '%s\n' "---"
+        printf '%s\n' "$encrypted"
+        return 0
+    fi
+
+    # Cache miss — encrypt
+    encrypted=$(printf '%s' "$content" | $age_cmd -e -a $age_args) || {
+        echo "md-age: dir-clean: encryption failed for $filename" >&2
+        exit 1
+    }
+
+    # Store in cache
+    set_cached "$cache_key" "$encrypted" 2>/dev/null || true
+
+    # Output envelope: frontmatter + ciphertext
+    printf '%s' "---
+age-encrypt: yes
+age-recipients:
+"
+    while IFS= read -r r; do
+        [[ -z "$r" ]] && continue
+        printf '  - %s\n' "$r"
+    done <<< "$recipients"
+    printf '%s\n' "---"
+    printf '%s\n' "$encrypted"
+}
+
+git_dir_smudge() {
+    local filename="${1:-}"
+
+    if [[ "$filename" == "-h" ]] || [[ "$filename" == "--help" ]]; then
+        cat <<'EOF'
+Usage: md-age git dir-smudge <filename>
+
+Git smudge filter for directory encryption - decrypts files on checkout.
+Reads from stdin, writes to stdout.
+Strips the frontmatter envelope, outputting raw file content.
+If no identity configured, passes through unchanged.
+EOF
+        exit 0
+    fi
+
+    # Read all stdin, preserving trailing newlines
+    local content
+    content=$(cat; printf x)
+    content="${content%x}"
+
+    # Parse frontmatter
+    if ! parse_frontmatter "$content"; then
+        # No frontmatter — pass through (not an envelope)
+        printf '%s' "$content"
+        return 0
+    fi
+
+    local frontmatter="$FRONTMATTER"
+    local body="$BODY"
+    body="${body%$'\n'}"
+
+    # Check if this is an md-age envelope
+    if ! echo "$frontmatter" | should_encrypt; then
+        printf '%s' "$content"
+        return 0
+    fi
+
+    # Check if body is encrypted
+    local trimmed_body="${body#"${body%%[![:space:]]*}"}"
+    if [[ "$trimmed_body" != "-----BEGIN AGE ENCRYPTED FILE-----"* ]]; then
+        # Not encrypted — pass through
+        printf '%s' "$content"
+        return 0
+    fi
+
+    # Get identities from git config
+    local identities
+    identities=$(git config --get-all md-age.config.identity 2>/dev/null || true)
+
+    if [[ -z "$identities" ]]; then
+        # No identity — pass through encrypted
+        printf '%s' "$content"
+        return 0
+    fi
+
+    # Build identity args
+    local id_args=""
+    while IFS= read -r id; do
+        [[ -z "$id" ]] && continue
+        if [[ "$id" == cmd:* ]]; then
+            local cmd="${id#cmd:}"
+            id_args="$id_args -i <($cmd)"
+        else
+            id_args="$id_args -i $id"
+        fi
+    done <<< "$identities"
+
+    # Try to decrypt
+    local decrypted
+    if decrypted=$(eval "printf '%s' \"\$body\" | $age_cmd -d $id_args" 2>/dev/null); then
+        # Success — output raw decrypted content (strip envelope entirely)
+        printf '%s' "$decrypted"
+    else
+        # Decrypt failed — pass through unchanged
+        printf '%s' "$content"
+    fi
+}
+
+git_add_dir() {
+    local dir="${1:-}"
+
+    if [[ "$dir" == "-h" ]] || [[ "$dir" == "--help" ]] || [[ -z "$dir" ]]; then
+        cat <<'EOF'
+Usage: md-age git add-dir <path>
+
+Set up a directory for transparent encryption.
+Creates .age-encrypt marker and configures .gitattributes.
+
+Recipients are read from .age-recipients (walks up to git root).
+Create one at the repo root to share across directories.
+EOF
+        [[ -z "$dir" ]] && exit 1
+        exit 0
+    fi
+
+    git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
+
+    # Strip trailing slash
+    dir="${dir%/}"
+
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel)
+    local gitattr="$repo_root/.gitattributes"
+
+    # Create directory if needed
+    mkdir -p "$repo_root/$dir"
+
+    # Create .age-encrypt marker
+    touch "$repo_root/$dir/.age-encrypt"
+
+    # Build .gitattributes lines
+    local filter_line="$dir/** filter=md-age-dir diff=md-age-dir"
+    local encrypt_exclude="$dir/.age-encrypt !filter !diff"
+
+    # Add filter line if not present
+    if [[ -f "$gitattr" ]] && grep -qF "$filter_line" "$gitattr"; then
+        echo "md-age: .gitattributes already has $dir filter"
+    else
+        echo "$filter_line" >> "$gitattr"
+    fi
+
+    # Add .age-encrypt exclusion if not present
+    if [[ -f "$gitattr" ]] && grep -qF "$encrypt_exclude" "$gitattr"; then
+        : # already present
+    else
+        echo "$encrypt_exclude" >> "$gitattr"
+    fi
+
+    # If dir has its own .age-recipients, exclude it too
+    if [[ -f "$repo_root/$dir/.age-recipients" ]]; then
+        local recip_exclude="$dir/.age-recipients !filter !diff"
+        if ! grep -qF "$recip_exclude" "$gitattr" 2>/dev/null; then
+            echo "$recip_exclude" >> "$gitattr"
+        fi
+    fi
+
+    echo "md-age: set up $dir for directory encryption"
+    echo "  created: $dir/.age-encrypt"
+    echo "  updated: .gitattributes"
+}
+
 # Route to git subcommand if first arg is "git"
 if [[ "${1:-}" == "git" ]]; then
     shift
     case "${1:-}" in
-        init)   shift; git_init "$@" ;;
-        config) shift; git_config "$@" ;;
-        rekey)  shift; git_rekey "$@" ;;
-        clean)  shift; git_clean "$@" ;;
-        smudge) shift; git_smudge "$@" ;;
+        init)      shift; git_init "$@" ;;
+        config)    shift; git_config "$@" ;;
+        rekey)     shift; git_rekey "$@" ;;
+        clean)     shift; git_clean "$@" ;;
+        smudge)    shift; git_smudge "$@" ;;
+        dir-clean) shift; git_dir_clean "$@" ;;
+        dir-smudge) shift; git_dir_smudge "$@" ;;
+        add-dir)   shift; git_add_dir "$@" ;;
         -h|--help|"") git_usage 0 ;;
         *) die "unknown git command: $1" ;;
     esac
