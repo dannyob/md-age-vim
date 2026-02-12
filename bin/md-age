@@ -1074,11 +1074,31 @@ EOF
 
     git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
 
-    # Strip trailing slash
-    dir="${dir%/}"
-
     local repo_root
     repo_root=$(git rev-parse --show-toplevel)
+
+    # Resolve to absolute path, then make relative to repo root
+    local abs_dir
+    abs_dir=$(cd "$dir" 2>/dev/null && pwd -P) || {
+        # Directory doesn't exist yet — resolve parent + basename
+        local parent base
+        parent=$(cd "$(dirname "$dir")" 2>/dev/null && pwd -P) || die "parent directory not found: $(dirname "$dir")"
+        base=$(basename "$dir")
+        abs_dir="$parent/$base"
+    }
+
+    # Ensure it's inside the repo
+    if [[ "$abs_dir" != "$repo_root"* ]]; then
+        die "directory is outside the git repository: $abs_dir"
+    fi
+
+    # Make relative to repo root, strip trailing slash
+    dir="${abs_dir#$repo_root/}"
+    # Handle the case where dir IS the repo root
+    if [[ "$dir" == "$abs_dir" ]]; then
+        die "cannot add-dir for the repository root itself"
+    fi
+    dir="${dir%/}"
     local gitattr="$repo_root/.gitattributes"
 
     # Create directory if needed

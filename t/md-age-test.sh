@@ -976,6 +976,35 @@ test_git_add_dir_creates_dir_if_missing() {
     [[ -f "$repo/newdir/.age-encrypt" ]]
 }
 
+test_git_add_dir_relative_dot() {
+    local repo="$TMPDIR/add-dir-dot"
+    git init -q "$repo"
+    mkdir -p "$repo/editorial/inbox/2026-02-13"
+
+    # Run add-dir . from inside a subdirectory
+    (cd "$repo/editorial/inbox/2026-02-13" && "$MD_AGE" git add-dir .) >/dev/null || return 1
+
+    # .age-encrypt should be in the subdirectory, not the repo root
+    [[ -f "$repo/editorial/inbox/2026-02-13/.age-encrypt" ]] || return 1
+    [[ ! -f "$repo/.age-encrypt" ]] || return 1
+
+    # .gitattributes should reference the full path, not "."
+    grep -q "editorial/inbox/2026-02-13/\*\*" "$repo/.gitattributes" || return 1
+    ! grep -q '^\./\*\*' "$repo/.gitattributes"
+}
+
+test_git_add_dir_relative_dotdot() {
+    local repo="$TMPDIR/add-dir-dotdot"
+    git init -q "$repo"
+    mkdir -p "$repo/a/b" "$repo/a/target"
+
+    # Run add-dir ../target from a/b
+    (cd "$repo/a/b" && "$MD_AGE" git add-dir ../target) >/dev/null || return 1
+
+    [[ -f "$repo/a/target/.age-encrypt" ]] || return 1
+    grep -q "a/target/\*\*" "$repo/.gitattributes" || return 1
+}
+
 test_git_add_dir_excludes_local_recipients() {
     local repo="$TMPDIR/add-dir-local-recip"
     git init -q "$repo"
@@ -1177,6 +1206,8 @@ main() {
     run_test "add-dir is idempotent" test_git_add_dir_idempotent
     run_test "add-dir handles multiple directories" test_git_add_dir_multiple_dirs
     run_test "add-dir creates directory if missing" test_git_add_dir_creates_dir_if_missing
+    run_test "add-dir normalizes . from subdirectory" test_git_add_dir_relative_dot
+    run_test "add-dir normalizes ../relative paths" test_git_add_dir_relative_dotdot
     run_test "add-dir excludes local .age-recipients" test_git_add_dir_excludes_local_recipients
     run_test "git init registers md-age-dir filter" test_git_init_registers_dir_filter
     run_test "dir integration: add/commit/checkout workflow" test_git_dir_integration_workflow
