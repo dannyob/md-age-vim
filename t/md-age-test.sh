@@ -747,6 +747,27 @@ test_git_dir_clean_encrypts() {
     ! echo "$output" | grep -q '"key"' || return 1
 }
 
+test_git_dir_clean_ssh_key_with_comment() {
+    # SSH keys in .age-recipients have spaces: "ssh-ed25519 AAAA... comment"
+    # These must not get word-split when passed to age -r
+    local repo="$TMPDIR/dir-clean-ssh"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+
+    # Use a real-format SSH ed25519 public key with a comment
+    # (age accepts any valid SSH public key as a recipient)
+    local ssh_pubkey="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGnfVKOiVFMNpfcEzwmFMJYNBHCnzMsp2DjXgGlFBEhI test-comment"
+    echo "$ssh_pubkey" > "$repo/.age-recipients"
+
+    local output
+    output=$(cd "$repo" && echo 'secret data' | "$MD_AGE" git dir-clean secrets/file.txt)
+
+    # Should succeed and produce encrypted envelope
+    echo "$output" | grep -q "^age-encrypt: yes$" || return 1
+    echo "$output" | grep -q "BEGIN AGE ENCRYPTED FILE" || return 1
+    ! echo "$output" | grep -q 'secret data' || return 1
+}
+
 test_git_dir_clean_walks_up() {
     # .age-recipients at repo root, file in subdirectory
     local repo="$TMPDIR/dir-clean-walkup"
@@ -1190,6 +1211,7 @@ main() {
 
     # Directory encryption tests
     run_test "dir-clean encrypts with envelope" test_git_dir_clean_encrypts
+    run_test "dir-clean handles SSH keys with comments" test_git_dir_clean_ssh_key_with_comment
     run_test "dir-clean walks up for .age-recipients" test_git_dir_clean_walks_up
     run_test "dir-clean nearest .age-recipients wins" test_git_dir_clean_nearest_recipients_wins
     run_test "dir-clean fails without .age-recipients" test_git_dir_clean_fails_no_recipients_file

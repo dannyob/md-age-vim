@@ -583,7 +583,7 @@ EOF
 
     # Cache miss - encrypt
 
-    encrypted=$(printf '%s' "$body" | $age_cmd -e -a $age_args) || {
+    encrypted=$(eval "printf '%s' \"\$body\" | \$age_cmd -e -a $age_args") || {
         echo "md-age: clean: encryption failed for $filename" >&2
         exit 1
     }
@@ -822,7 +822,8 @@ build_recipient_args() {
     while IFS= read -r r; do
         [[ -z "$r" ]] && continue
         if [[ "$r" == age1* ]] || [[ "$r" == ssh-* ]]; then
-            args="$args -r $r"
+            # Shell-quote: SSH keys contain spaces (type + base64 + comment)
+            args="$args -r $(printf '%q' "$r")"
         elif [[ "$r" == git:* ]]; then
             # git: prefix - resolve from git repo root
             if [[ -z "$git_root" ]]; then
@@ -832,7 +833,7 @@ build_recipient_args() {
                 }
             fi
             local git_path="${r#git:}"
-            args="$args -R $git_root/$git_path"
+            args="$args -R $(printf '%q' "$git_root/$git_path")"
         else
             # Expand ~ for file paths
             local expanded="${r/#\~/$HOME}"
@@ -840,7 +841,7 @@ build_recipient_args() {
             if [[ "$expanded" != /* ]]; then
                 expanded="$base_dir/$expanded"
             fi
-            args="$args -R $expanded"
+            args="$args -R $(printf '%q' "$expanded")"
         fi
     done <<< "$recipients"
     echo "$args"
@@ -956,7 +957,7 @@ age-recipients:
     fi
 
     # Cache miss — encrypt
-    encrypted=$(printf '%s' "$content" | $age_cmd -e -a $age_args) || {
+    encrypted=$(eval "printf '%s' \"\$content\" | \$age_cmd -e -a $age_args") || {
         echo "md-age: dir-clean: encryption failed for $filename" >&2
         exit 1
     }
@@ -1243,13 +1244,13 @@ elif [[ "$mode" == "encrypt" ]]; then
     if [[ ${#recipients[@]} -gt 0 ]] || [[ ${#recipient_files[@]} -gt 0 ]]; then
         for r in "${recipients[@]}"; do
             if [[ "$r" == age1* ]] || [[ "$r" == ssh-* ]]; then
-                age_args="$age_args -r $r"
+                age_args="$age_args -r $(printf '%q' "$r")"
             else
-                age_args="$age_args -R ${r/#\~/$HOME}"
+                age_args="$age_args -R $(printf '%q' "${r/#\~/$HOME}")"
             fi
         done
         for rf in "${recipient_files[@]}"; do
-            age_args="$age_args -R ${rf/#\~/$HOME}"
+            age_args="$age_args -R $(printf '%q' "${rf/#\~/$HOME}")"
         done
     elif [[ -n "$frontmatter" ]]; then
         # Validate age-encrypt value if present (warn on typos)
@@ -1269,7 +1270,7 @@ elif [[ "$mode" == "encrypt" ]]; then
     fi
 
     # Encrypt body (always armored for markdown embedding)
-    encrypted=$(echo "$body" | $age_cmd -e -a $age_args) || die "encryption failed"
+    encrypted=$(eval "echo \"\$body\" | \$age_cmd -e -a $age_args") || die "encryption failed"
 
     # Build output
     if [[ -n "$frontmatter" ]]; then
