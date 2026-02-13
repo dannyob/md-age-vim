@@ -908,23 +908,25 @@ EOF
         exit 0
     fi
 
-    # Read all stdin, preserving trailing newlines
-    local content
-    content=$(cat; printf x)
-    content="${content%x}"
+    # Read all stdin to a temp file (binary-safe, avoids null byte warnings)
+    local content_file
+    content_file=$(mktemp)
+    cat > "$content_file"
 
     # Find .age-recipients
     local recipients_file
     recipients_file=$(find_age_recipients "$filename") || {
+        \rm -f "$content_file"
         echo "md-age: dir-clean: no .age-recipients found for $filename" >&2
         exit 1
     }
 
     # Read recipients
     local recipients
-    recipients=$(read_age_recipients "$recipients_file") || exit 1
+    recipients=$(read_age_recipients "$recipients_file") || { \rm -f "$content_file"; exit 1; }
 
     if [[ -z "$recipients" ]]; then
+        \rm -f "$content_file"
         echo "md-age: dir-clean: .age-recipients is empty: $recipients_file" >&2
         exit 1
     fi
@@ -937,11 +939,12 @@ EOF
 
     # Compute cache key using resolved recipients
     local cache_key
-    cache_key=$(compute_cache_key "$age_args" "$content")
+    cache_key=$(printf '%s\0' "$age_args" | cat - "$content_file" | shasum -a 256 | cut -d' ' -f1)
 
     # Check cache
     local encrypted
     if encrypted=$(get_cached "$cache_key" 2>/dev/null); then
+        \rm -f "$content_file"
         # Cache hit — build envelope with cached ciphertext
         printf '%s' "---
 age-encrypt: yes
@@ -957,10 +960,13 @@ age-recipients:
     fi
 
     # Cache miss — encrypt
-    encrypted=$(eval "printf '%s' \"\$content\" | \$age_cmd -e -a $age_args") || {
+    encrypted=$(eval "\$age_cmd -e -a $age_args < \"\$content_file\"") || {
+        \rm -f "$content_file"
         echo "md-age: dir-clean: encryption failed for $filename" >&2
         exit 1
     }
+
+    \rm -f "$content_file"
 
     # Store in cache
     set_cached "$cache_key" "$encrypted" 2>/dev/null || true
@@ -1045,12 +1051,8 @@ EOF
         fi
     done <<< "$identities"
 
-    # Try to decrypt
-    local decrypted
-    if decrypted=$(eval "printf '%s' \"\$body\" | $age_cmd -d $id_args" 2>/dev/null); then
-        # Success — output raw decrypted content (strip envelope entirely)
-        printf '%s' "$decrypted"
-    else
+    # Try to decrypt (pipe directly to stdout to handle binary content)
+    if ! eval "printf '%s' \"\$body\" | $age_cmd -d $id_args" 2>/dev/null; then
         # Decrypt failed — pass through unchanged
         printf '%s' "$content"
     fi
