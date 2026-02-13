@@ -999,14 +999,27 @@ EOF
         exit 0
     fi
 
-    # Read all stdin, preserving trailing newlines
+    # Read all stdin to a temp file (binary-safe, avoids null byte warnings)
+    local content_file
+    content_file=$(mktemp)
+    cat > "$content_file"
+
+    # Quick check: if first line isn't "---", not an envelope — pass through raw
+    # Use pipe (not command substitution) to avoid null byte warnings on binary
+    if ! head -c 4 "$content_file" | grep -qx -- '---'; then
+        cat "$content_file"
+        \rm -f "$content_file"
+        return 0
+    fi
+
+    # Content starts with frontmatter — safe to read as text (envelope is ASCII)
     local content
-    content=$(cat; printf x)
+    content=$(cat "$content_file"; printf x)
     content="${content%x}"
+    \rm -f "$content_file"
 
     # Parse frontmatter
     if ! parse_frontmatter "$content"; then
-        # No frontmatter — pass through (not an envelope)
         printf '%s' "$content"
         return 0
     fi

@@ -938,6 +938,59 @@ test_git_dir_smudge_passthrough_no_envelope() {
     [[ "$output" == "just plain text" ]]
 }
 
+test_git_dir_smudge_binary_passthrough() {
+    # Binary content with null bytes must pass through without warnings or corruption
+    local repo="$TMPDIR/dir-smudge-binary"
+    git init -q "$repo"
+
+    # Create binary input with null bytes
+    printf 'binary\x00content\x00here' > "$TMPDIR/binary_input.bin"
+
+    # Smudge should pass through and produce identical output (no envelope)
+    "$MD_AGE" git dir-smudge somefile.bin < "$TMPDIR/binary_input.bin" > "$TMPDIR/binary_output.bin" 2>"$TMPDIR/smudge_stderr.txt"
+
+    # Output must be byte-identical
+    local input_hash output_hash
+    input_hash=$(shasum -a 256 < "$TMPDIR/binary_input.bin" | cut -d' ' -f1)
+    output_hash=$(shasum -a 256 < "$TMPDIR/binary_output.bin" | cut -d' ' -f1)
+    [[ "$input_hash" == "$output_hash" ]] || {
+        echo "binary content was corrupted" >&2
+        return 1
+    }
+
+    # Must not produce null byte warnings on stderr
+    ! grep -q "null byte" "$TMPDIR/smudge_stderr.txt" || {
+        echo "null byte warning on stderr" >&2
+        return 1
+    }
+}
+
+test_git_dir_clean_no_null_byte_warning() {
+    # dir-clean must not emit null byte warnings for binary input
+    local repo="$TMPDIR/dir-clean-nullwarn"
+    mkdir -p "$repo/secrets"
+    git init -q "$repo"
+    echo "$RECIPIENT" > "$repo/.age-recipients"
+
+    # Create binary input with null bytes
+    printf 'secret\x00binary\x00data' > "$TMPDIR/nullwarn_input.bin"
+
+    (cd "$repo" && "$MD_AGE" git dir-clean secrets/file.bin < "$TMPDIR/nullwarn_input.bin") \
+        > "$TMPDIR/nullwarn_output.bin" 2>"$TMPDIR/clean_stderr.txt"
+
+    # Should produce encrypted envelope
+    grep -q "BEGIN AGE ENCRYPTED FILE" "$TMPDIR/nullwarn_output.bin" || {
+        echo "encryption failed" >&2
+        return 1
+    }
+
+    # Must not produce null byte warnings on stderr
+    ! grep -q "null byte" "$TMPDIR/clean_stderr.txt" || {
+        echo "null byte warning on stderr" >&2
+        return 1
+    }
+}
+
 test_git_add_dir_creates_marker() {
     local repo="$TMPDIR/add-dir-repo"
     git init -q "$repo"
@@ -1223,6 +1276,8 @@ main() {
     run_test "dir-smudge strips envelope" test_git_dir_smudge_strips_envelope
     run_test "dir-smudge passes through without identity" test_git_dir_smudge_passthrough_no_identity
     run_test "dir-smudge passes through non-envelope" test_git_dir_smudge_passthrough_no_envelope
+    run_test "dir-smudge binary passthrough preserves null bytes" test_git_dir_smudge_binary_passthrough
+    run_test "dir-clean no null byte warning for binary input" test_git_dir_clean_no_null_byte_warning
     run_test "add-dir creates .age-encrypt marker" test_git_add_dir_creates_marker
     run_test "add-dir updates .gitattributes" test_git_add_dir_updates_gitattributes
     run_test "add-dir is idempotent" test_git_add_dir_idempotent
